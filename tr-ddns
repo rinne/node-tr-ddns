@@ -130,28 +130,34 @@ async function writeConfig(fn, config) {
 	}
 	for (let d of config.domains) {
 		try {
-			db.addDomain(d?.soa?.name);
+			if (db.validDomain(d?.soa?.name)) {
+				db.addDomain(d.soa.name);
+			} else {
+				console.warn('Ignored invalid domqin entry (' + ((typeof(d?.soa?.name) === 'string') ? d.soa.name : '?') + ') from configuration.');
+			}
 		} catch (e) {
-			console.error('Malformatted configuration2');
-			process.exit(1);
+			console.warn('Ignored domqin entry (' + d.soa.name + ') that cannot be activated from configuration.');
 		}
 	}
 	for (let h of config.hosts) {
 		let now = Date.now();
 		try {
-			let ttlMs;
-			if (Number.isFinite(h.expires)) {
-				if (h.expires <= now) {
-					continue;
+			if (db.valid(h?.name)) {
+				let ttlMs;
+				if (Number.isFinite(h.expires)) {
+					if (h.expires <= now) {
+						continue;
+					}
+					ttlMs = h.expires - now;
+				} else {
+					ttlMs = undefined;
 				}
-				ttlMs = h.expires - now;
+				db.set(h?.name, h?.data, ttlMs);
 			} else {
-				ttlMs = undefined;
+				console.warn('Ignored invalid host entry (' + ((typeof(h?.name) === 'string') ? h.name : '?') + ') from configuration.');
 			}
-			db.set(h?.name, h?.data, ttlMs);
 		} catch (e) {
-			console.error('Malformatted configuration');
-			process.exit(1);
+			console.warn('Ignored invalid host entry (' + h.name + ') that cannot be activated from configuration.');
 		}
 	}
 	config = db.dump();
@@ -163,10 +169,15 @@ async function writeConfig(fn, config) {
 	}
 
 	{
-		let changeCb = function() { (async function(db) { try { await writeConfigOrDie(db); } catch (e) {} })(db); };
-		db.on('add', changeCb);
-		db.on('update', changeCb);
-		db.on('remove', changeCb);
+		let changeCb = function(event, name) {
+			if (opt.value('debug')) {
+				console.log(event + ':', name);
+			}
+			(async function(db) { try { await writeConfigOrDie(db); } catch (e) {} })(db);
+		};
+		db.on('add', function(name) { changeCb('add', name); });
+		db.on('update', function(name) { changeCb('update', name); });
+		db.on('remove', function(name) { changeCb('remove', name); });
 	}
 
 	const api = (opt.value('http-api') ?

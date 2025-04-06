@@ -147,7 +147,6 @@ class ApiServer extends EventEmitter {
 				r.jsonResponse({ status: 'error', code: 400, message: 'Bad request (remove)' }, 400);
 				return;
 			}
-			console.log(a, aaaa, txt, ttlMs, remove);
 			if (remove) {
 				if (a || aaaa || txt || ttlMs) {
 					r.jsonResponse({ status: 'error', code: 400, message: 'Bad request (conflicting params)' }, 400);

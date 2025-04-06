@@ -114,7 +114,6 @@ class NameDB extends EventEmitter {
 	}
 
 	set(name, data, ttlMs) {
-		console.log('set:', name, data, ttlMs);
 		if (! this.valid(name)) {
 			return false;
 		}
@@ -267,10 +266,9 @@ class NameDB extends EventEmitter {
 	}
 
 	valid(name) {
-		if (! /^([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9]))(\.([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9]))){1,125}$/.test(name)) {
-			return false;
-		}
-		return (name.length <= 253);
+		return ((typeof(name) === 'string') &&
+				(name.length <= 253) &&
+				/^([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)(\.([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)){1,125}$/.test(name));
 	}
 
 	validDomain(domain) {

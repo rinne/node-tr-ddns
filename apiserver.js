@@ -202,7 +202,7 @@ class ApiServer extends EventEmitter {
 	async #flush(r) {
 		try {
 			this.#db.flush();
-			r.jsonResponse({ status: 'ok', code: 200, message: 'OK' }, 200);
+			r.jsonResponse({ status: 'ok', code: 200 }, 200);
 		} catch (e) {
 			console.error(e);
 			r.jsonResponse({ status: 'error', code: 500, message: 'Internal error' }, 500);

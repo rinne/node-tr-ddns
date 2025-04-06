@@ -9,6 +9,7 @@ class NameServer extends EventEmitter {
 	#server;
 	#closed;
 	#debug;
+	#db;
 	
 	constructor(config) {
 		super();
@@ -63,42 +64,11 @@ class NameServer extends EventEmitter {
 		if (! (listen.tcp || listen.udp)) {
 			throw new Error('No listeners');
 		}
-		let db = config.nameDB;
+		this.#db = config.nameDB;
 		let server = dns2.createServer({
 			udp: listen.udp ? true : false,
 			tcp: listen.tcp ? true : false,
-			handle: function (request, send, rinfo) {
-				const response = dns2.Packet.createResponseFromRequest(request);
-				for (let q of request.questions) {
-					if (this.#debug) {
-						console.log('query:', JSON.stringify(q, null, 2));
-					}
-					if (! (q && (typeof(q) === 'object'))) {
-						if (this.#debug) {
-							console.log('response: NONE <invalid-query>');
-						}
-						continue;
-					}
-					if (q.class !== dns2.Packet.CLASS.IN) {
-						if (this.#debug) {
-							console.log('response: NONE <invalid-query-class>');
-						}
-						continue;
-					}
-					let r = db.get(q.name, q.type);
-					if (! r) {
-						if (this.#debug) {
-							console.log('response: NONE <database-query-returns-null>');
-						}
-						continue;
-					}
-					if (this.#debug) {
-						console.log('response:', JSON.stringify(r, null, 2));
-					}
-					response.answers.push(r);
-				}
-				send(response);
-			}.bind(this)
+			handle: function(request, send, rinfo) { return this.#query(request, send, rinfo); }.bind(this)
 		});
 
 		server.on('request', function (request, response, rinfo) {
@@ -135,6 +105,39 @@ class NameServer extends EventEmitter {
 		}.bind(this));
 
 		server.listen(listen);
+	}
+
+	#query(request, send, rinfo) {
+		const response = dns2.Packet.createResponseFromRequest(request);
+		for (let q of request.questions) {
+			if (this.#debug) {
+				console.log('query:', JSON.stringify(q, null, 2));
+			}
+			if (! (q && (typeof(q) === 'object'))) {
+				if (this.#debug) {
+					console.log('response: NONE <invalid-query>');
+				}
+				continue;
+			}
+			if (q.class !== dns2.Packet.CLASS.IN) {
+				if (this.#debug) {
+					console.log('response: NONE <invalid-query-class>');
+				}
+				continue;
+			}
+			let r = this.#db.get(q.name, q.type);
+			if (! r) {
+				if (this.#debug) {
+					console.log('response: NONE <database-query-returns-null>');
+				}
+				continue;
+			}
+			if (this.#debug) {
+				console.log('response:', JSON.stringify(r, null, 2));
+			}
+			response.answers.push(r);
+		}
+		send(response);
 	}
 
 	close() {

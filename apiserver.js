@@ -4,6 +4,7 @@ const EventEmitter = require('node:events');
 
 const ipaddr = require('ipaddr.js');
 const ApiSrv = require('tr-apisrv');
+const packageJson = require('./package.json');
 
 class ApiServer extends EventEmitter {
 
@@ -46,14 +47,19 @@ class ApiServer extends EventEmitter {
 		var res = r.res;
 		delete r.res;
 		switch (r.url) {
+		case '/':
+			r.jsonResponse({ status: 'ok', code: 200, data: { package: packageJson?.name ?? '?', version: packageJson?.version ?? '?' } }, 200);
+			return;
 		case '/domain':
 			return this.#domain(r);
 		case '/host':
 			return this.#host(r);
 		case '/dump':
 			return this.#dump(r);
+		case '/flush':
+			return this.#flush(r);
 		}
-		if (opt.value('debug')) {
+		if (this.#debug) {
 			console.log('API:', r.url, '(not found)');
 		}
 		r.jsonResponse({ status: 'error', code: 404, message: 'Not found' }, 404);
@@ -68,7 +74,7 @@ class ApiServer extends EventEmitter {
 			if ([ undefined, false, 'false' ].includes(r.params.remove)) {
 				try {
 					this.#db.addDomain(r.params.domain);
-					r.jsonResponse({ status: 'ok', code: 200, message: 'OK' }, 200);
+					r.jsonResponse({ status: 'ok', code: 200 }, 200);
 				} catch  (e) {
 					r.jsonResponse({ status: 'error', code: 400, message: 'Bad request (unable to add domain)' }, 400);
 					return;
@@ -76,7 +82,7 @@ class ApiServer extends EventEmitter {
 			} else if ([ true, 'true' ].includes(r.params.remove)) {
 				try {
 					this.#db.removeDomain(r.params.domain);
-					r.jsonResponse({ status: 'ok', code: 200, message: 'OK' }, 200);
+					r.jsonResponse({ status: 'ok', code: 200 }, 200);
 				} catch  (e) {
 					r.jsonResponse({ status: 'error', code: 400, message: 'Bad request (unable to remove domain)' }, 400);
 					return;
@@ -157,7 +163,7 @@ class ApiServer extends EventEmitter {
 					if (! rv) {
 						throw new Error('Unable to remove host');
 					}
-					r.jsonResponse({ status: 'ok', code: 200, message: 'OK' }, 200);
+					r.jsonResponse({ status: 'ok', code: 200 }, 200);
 				} catch (e) {
 					r.jsonResponse({ status: 'error', code: 400, message: 'Bad request (unable to remove host)' }, 400);
 					return;
@@ -168,7 +174,7 @@ class ApiServer extends EventEmitter {
 					if (! rv) {
 						throw new Error('Unable to add host');
 					}
-					r.jsonResponse({ status: 'ok', code: 200, message: 'OK' }, 200);
+					r.jsonResponse({ status: 'ok', code: 200 }, 200);
 				} catch (e) {
 					console.log(e);
 					r.jsonResponse({ status: 'error', code: 400, message: 'Bad request (unable to add/update host)' }, 400);
@@ -186,6 +192,17 @@ class ApiServer extends EventEmitter {
 		try {
 			let d = this.#db.dump();
 			r.jsonResponse({ status: 'ok', code: 200, data: d }, 200);
+		} catch (e) {
+			console.error(e);
+			r.jsonResponse({ status: 'error', code: 500, message: 'Internal error' }, 500);
+		}
+
+	}
+
+	async #flush(r) {
+		try {
+			this.#db.flush();
+			r.jsonResponse({ status: 'ok', code: 200, message: 'OK' }, 200);
 		} catch (e) {
 			console.error(e);
 			r.jsonResponse({ status: 'error', code: 500, message: 'Internal error' }, 500);

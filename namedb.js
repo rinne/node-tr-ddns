@@ -263,6 +263,7 @@ class NameDB extends EventEmitter {
 		}
 		this.#hosts.clear();
 		this.#domains.clear();
+		this.emit('flush');
 	}
 
 	valid(name) {

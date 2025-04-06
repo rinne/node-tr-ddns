@@ -171,13 +171,14 @@ async function writeConfig(fn, config) {
 	{
 		let changeCb = function(event, name) {
 			if (opt.value('debug')) {
-				console.log(event + ':', name);
+				console.log('EVENT:', event + '(' + (name ? name : '') + ')');
 			}
 			(async function(db) { try { await writeConfigOrDie(db); } catch (e) {} })(db);
 		};
 		db.on('add', function(name) { changeCb('add', name); });
 		db.on('update', function(name) { changeCb('update', name); });
 		db.on('remove', function(name) { changeCb('remove', name); });
+		db.on('flush', function(name) { changeCb('flush'); });
 	}
 
 	const api = (opt.value('http-api') ?

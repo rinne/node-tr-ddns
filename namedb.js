@@ -79,8 +79,15 @@ class NameDB extends EventEmitter {
 			ttl: 60,
 			exchange: 'mail.' + lcdomain,
 			priority: 1
-		}
-		this.#domains.set(lcdomain, { soa, mx } );
+		};
+		let ns = {
+			name: lcdomain,
+			type: Packet.TYPE.NS,
+			class: Packet.CLASS.IN,
+			ttl: 60,
+			ns: lcdomain
+		};
+		this.#domains.set(lcdomain, { soa, mx, ns } );
 	}
 
 	#searchDomain(lcname) {
@@ -211,6 +218,13 @@ class NameDB extends EventEmitter {
 			let d = this.#domains.get(lcname);
 			if (d?.mx) {
 				return d.mx;
+			}
+			return false;
+		}
+		if (type === Packet.TYPE.NS) {
+			let d = this.#domains.get(lcname);
+			if (d?.ns) {
+				return d.ns;
 			}
 			return false;
 		}

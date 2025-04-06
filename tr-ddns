@@ -25,7 +25,8 @@ async function commandLineOptsParse() {
 	opt = ((new (require('optist')))
 		   .opts([].concat(
 		       [ { longName: 'debug',
-				   description: 'Enable debug messages' } ],
+				   description: 'Enable debug messages',
+				   environment: 'TR_DDNS_OPT_DEBUG' } ],
 			   [ { longName: 'config-file',
 				   shortName: 'c',
 				   description: 'Configuration file',

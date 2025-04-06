@@ -1,0 +1,37 @@
+{
+	"name": "tr-ddns",
+	"version": "1.0.0",
+	"description": "Simple DDNS Server",
+	"main": "index.js",
+	"scripts": {
+		"test": "node index.js"
+	},
+	"engines": {
+		"node": ">= 18.0.0"
+	},
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/rinne/node-tr-ddns.git"
+	},
+	"keywords": [
+		"dns",
+		"dyndns",
+		"ddns"
+	],
+	"bugs": {
+		"url": "https://github.com/rinne/node-tr-ddns/issues"
+	},
+	"homepage": "https://github.com/rinne/node-tr-ddns#readme",
+    "author": {
+		"name": "Timo J. Rinne",
+		"email": "tri@iki.fi",
+		"url": "https://github.com/rinne/"
+	},
+	"license": "MIT",
+	"dependencies": {
+		"dns2": "^2.1.0",
+		"ipaddr.js": "^2.2.0",
+		"optist": "^2.0.1",
+		"tr-apisrv": "^0.2.0"
+	}
+}

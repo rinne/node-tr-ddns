@@ -1,0 +1,202 @@
+#! /usr/bin/env node
+'use strict';
+
+var opt = null;
+
+const fsp = require('fs').promises;
+
+const ipaddr = require('ipaddr.js');
+
+const NameDB = require('./namedb');
+const NameServer = require('./nameserver');
+const ApiServer = require('./apiserver');
+
+async function commandLineOptsParse() {
+	if (opt !== null) {
+		throw new Error('Options can only be parsed once');
+	}
+	function validIpAddrCb(s) {
+		if (! ipaddr.isValid(s)) {
+			return undefined;
+		}
+		return ipaddr.parse(s).toNormalizedString();
+	}
+	const ou = require('optist/util');
+	opt = ((new (require('optist')))
+		   .opts([].concat(
+		       [ { longName: 'debug',
+				   description: 'Enable debug messages' } ],
+			   [ { longName: 'config-file',
+				   shortName: 'c',
+				   description: 'Configuration file',
+				   required: true,
+				   hasArg: true },
+				 { longName: 'init-config-file',
+				   description: 'Initialize configuration file and exit' } ],
+			   [ { longName: 'udp',
+				   description: 'Enable UDP server',
+				   environment: 'TR_DDNS_OPT_UDP' },
+				 { longName: 'udp-listen-address',
+				   description: 'Listen address for UDP server',
+				   hasArg: true,
+				   optArgCb: validIpAddrCb,
+				   environment: 'TR_DDNS_OPT_UDP_LISTEN_ADDRESS',
+				   defaultValue: '0.0.0.0' },
+				 { longName: 'udp-listen-port',
+				   description: 'Listen port for UDP server',
+				   hasArg: true,
+				   optArgCb: ou.integerWithLimitsCbFactory(1, 65535),
+				   environment: 'TR_DDNS_OPT_UDP_LISTEN_PORT',
+				   defaultValue: '53' },
+				 { longName: 'tcp',
+				   description: 'Enable TCP server',
+				   environment: 'TR_DDNS_OPT_TCP' },
+				 { longName: 'tcp-listen-address',
+				   description: 'Listen address for TCP server',
+				   optArgCb: validIpAddrCb,
+				   hasArg: true,
+				   defaultValue: '0.0.0.0',
+				   environment: 'TR_DDNS_OPT_TCP_LISTEN_ADDRESS' },
+				 { longName: 'tcp-listen-port',
+				   hasArg: true,
+				   optArgCb: ou.integerWithLimitsCbFactory(1, 65535),
+				   environment: 'TR_DDNS_OPT_TCP_LISTEN_PORT',
+				   defaultValue: '53',
+				   description: 'Listen port for TCP server' },
+				 { longName: 'http-api',
+				   description: 'Enable HTTP-API server',
+				   environment: 'TR_DDNS_OPT_HTTP_API' },
+				 { longName: 'http-api-listen-address',
+				   description: 'Listen address for HTTP control server',
+				   hasArg: true,
+				   optArgCb: validIpAddrCb,
+				   environment: 'TR_DDNS_OPT_HTTP_API_LISTEN_ADDRESS',
+				   defaultValue: '0.0.0.0' },
+				 { longName: 'http-api-listen-port',
+				   description: 'Listen port for HTTP-API server',
+				   hasArg: true,
+				   optArgCb: ou.integerWithLimitsCbFactory(1, 65535),
+				   environment: 'TR_DDNS_OPT_HTTP_API_LISTEN_PORT',
+				   defaultValue: '80' } ] ))
+		.help(process.argv[1].replace(/^.*\//, ''))
+		.parse(undefined, 0, 0));
+}
+
+async function writeConfig(fn, config) {
+	await fsp.writeFile(fn, JSON.stringify(config, null, 2), { encoding: 'utf8', mode: 0o644, flag: 'w' });
+}
+
+(async function() {
+	await commandLineOptsParse();
+	let cf;
+	try {
+		cf = await fsp.readFile(opt.value('config-file'), { encoding: 'utf8', flag: 'r' } );
+	} catch (e) {
+		if (e.code === 'ENOENT') {
+			cf = false;
+		} else {
+			console.error('Unable to access configuration file (' + (e.code ?? '?') + ')');
+			process.exit(1);
+		}
+	}
+
+	let config;
+	const db = new NameDB();
+
+	if (opt.value('init-config-file')) {
+		if (cf !== false) {
+			console.error('Unable to initialize configuration file (EEXIST)');
+			process.exit(1);
+		}
+		config = db.dump();
+		try {
+			await writeConfig(opt.value('config-file'), config);
+		} catch (e) {
+			console.error('Unable to initialize configuration file (' + (e.code ?? '?') + ')');
+			process.exit(1);
+		}
+		process.exit(0);
+	} else {
+		try {
+			config = JSON.parse(cf);
+			if (! (Array.isArray(config?.domains) && Array.isArray(config?.hosts))) {
+				throw new Error('Invalid config');
+			}
+		} catch (e) {
+			console.error('Malformatted configuration1');
+			process.exit(1);
+		}
+	}
+	for (let d of config.domains) {
+		try {
+			db.addDomain(d?.soa?.name);
+		} catch (e) {
+			console.error('Malformatted configuration2');
+			process.exit(1);
+		}
+	}
+	for (let h of config.hosts) {
+		let now = Date.now();
+		try {
+			let ttlMs;
+			if (Number.isFinite(h.expires)) {
+				if (h.expires <= now) {
+					continue;
+				}
+				ttlMs = h.expires - now;
+			} else {
+				ttlMs = undefined;
+			}
+			db.set(h?.name, h?.data, ttlMs);
+		} catch (e) {
+			console.error('Malformatted configuration');
+			process.exit(1);
+		}
+	}
+	config = db.dump();
+	try {
+		await writeConfig(opt.value('config-file'), config);
+	} catch (e) {
+		console.error('Unable to update configuration file (' + (e.code ?? '?') + ')');
+		process.exit(1);
+	}
+
+	{
+		let changeCb = function() { (async function(db) { try { await writeConfigOrDie(db); } catch (e) {} })(db); };
+		db.on('add', changeCb);
+		db.on('update', changeCb);
+		db.on('remove', changeCb);
+	}
+
+	const api = (opt.value('http-api') ?
+				 new ApiServer({ nameDB: db,
+								 port: opt.value('http-api-listen-port'),
+								 address: opt.value('http-api-listen-address'),
+								 debug: opt.value('debug') }) :
+				 undefined);
+
+	const server = ((opt.value('udp') || opt.value('tcp')) ?
+					new NameServer({
+						debug: opt.value('debug'),
+						tcp: opt.value('tcp'),
+						tcpListenPort: opt.value('tcp-listen-port'),
+						tcpListenAddress: opt.value('tcp-listen-address'),
+						udp: opt.value('udp'),
+						udpListenPort: opt.value('udp-listen-port'),
+						udpListenAddress: opt.value('udp-listen-address'),
+						nameDB: db
+					}) :
+					undefined);
+
+})();
+
+async function writeConfigOrDie(db) {
+	let config = db.dump();
+	try {
+		await writeConfig(opt.value('config-file'), config);
+	} catch (e) {
+		console.error('Unable to save current configuration (' + (e.code ?? '?') + ')');
+		process.exit(1);
+	}
+	console.log('Config written');
+}

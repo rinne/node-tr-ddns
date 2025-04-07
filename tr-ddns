@@ -135,10 +135,10 @@ async function writeConfig(fn, config) {
 			if (db.validDomain(d?.name)) {
 				db.addDomain(d.name);
 			} else {
-				console.warn('Ignored invalid domqin entry (' + ((typeof(d?.name) === 'string') ? d.name : '?') + ') from configuration.');
+				console.warn('Ignored invalid domain entry (' + ((typeof(d?.name) === 'string') ? d.name : '?') + ') from configuration.');
 			}
 		} catch (e) {
-			console.warn('Ignored domqin entry (' + d.name + ') that cannot be activated from configuration.');
+			console.warn('Ignored domain entry (' + d.name + ') that cannot be activated from configuration.');
 		}
 	}
 	for (let h of config.hosts) {

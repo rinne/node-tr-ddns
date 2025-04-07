@@ -4,6 +4,7 @@ const EventEmitter = require('node:events');
 const dns2 = require('dns2');
 const ipaddr = require('ipaddr.js');
 
+const nullish = require('./nullish');
 const log = require('./log');
 
 class NameServer extends EventEmitter {
@@ -117,23 +118,26 @@ class NameServer extends EventEmitter {
 			if (this.#debug) {
 				log('query:', JSON.stringify(q, null, 2));
 			}
-			if (! (q && (typeof(q) === 'object'))) {
+			if (! ((q?.class === dns2.Packet.CLASS.IN) && Number.isSafeInteger(q?.type) && (typeof(q?.name) === 'string'))) {
 				if (this.#debug) {
 					log('response: NONE <invalid-query>');
 				}
-				continue;
-			}
-			if (q.class !== dns2.Packet.CLASS.IN) {
-				if (this.#debug) {
-					log('response: NONE <invalid-query-class>');
-				}
-				continue;
+				// If any of the questions is invalid, we don't answer at all.
+				return;
 			}
 			let r = this.#db.get(q.name, q.type);
-			if (! r) {
-				if (this.#debug) {
-					log('response: NONE <database-query-returns-null>');
-				}
+			if (r === false) {
+				// Query didn't match to any domain we are serving, so
+				// we don't bother answering. It's probably a
+				// configuration error, hostile probing, or DNS
+				// applification attack anyways.
+				log('response: NONE <not-allowed> (' + q.name + ')');
+				return;
+			}
+			if (nullish(r)) {
+				// We don't have data that was asked for, but the
+				// query was at least inside our domains.
+				log('response: NONE <not-found> (' + q.name + ')');
 				continue;
 			}
 			if (this.#debug) {

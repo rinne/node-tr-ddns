@@ -103,8 +103,11 @@ async function writeConfig(fn, config) {
 		}
 	}
 
+	const db = new NameDB({
+		debug: opt.value('debug')
+	});
+
 	let config;
-	const db = new NameDB();
 
 	if (opt.value('init-config-file')) {
 		if (cf !== false) {

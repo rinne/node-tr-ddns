@@ -50,11 +50,11 @@ curl 'http://TR-DDNS-ADDR/domain?domain=test-domain.tld&remove=true'
 
 ### Add or Update Host
 
-Supported records are A, AAAA, and TXT.
+Supported records are A, AAAA, MX, and TXT.
 
 ```
 curl http://TR-DDNS/host'?host=host1.test.domain.tld?a=1.2.3.4'
-curl http://TR-DDNS/host'?host=host2.test.domain.tld?a=1.2.3.4&aaaa=2001:ffff:ffff::dead:beef'
+curl http://TR-DDNS/host'?host=host2.test.domain.tld?a=1.2.3.4&aaaa=2001:ffff:ffff::dead:beef&mx=my.mail.server.tld'
 curl http://TR-DDNS/host'?host=_sometext.test.domain.tld?txt=this-is-probably-some-dynamic-authorization'
 ```
 

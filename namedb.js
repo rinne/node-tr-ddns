@@ -4,6 +4,8 @@ const EventEmitter = require('node:events');
 const { Packet } = require('dns2');
 const ipaddr = require('ipaddr.js');
 
+const nullish = require('./nullish');
+
 class NameDB extends EventEmitter {
 
 	#hosts;
@@ -25,16 +27,19 @@ class NameDB extends EventEmitter {
 	#updateSerials() {
 		let ns = this.#serial();
 		for (let dd of this.#domains.values()) {
-			let os = dd.soa.serial;
+			let os = dd.serial;
 			if ((ns > os) || ((os - ns) > 2147483648)) {
-				dd.soa.serial = ns;
+				dd.serial = ns;
 			}
 		}
 	}
 	#incrementSerial(lcdomain) {
 		let dd = this.#searchDomain(lcdomain);
-		if (dd) {
-			dd.soa.serial = (dd.soa.serial + 1) % 4294967296;
+		if (dd?.serial) {
+			dd.serial = (dd.serial + 1) % 4294967296;
+			if (dd.serial == 0) {
+				dd.serial = 1;
+			}
 			return true;
 		}
 		return false;
@@ -59,35 +64,9 @@ class NameDB extends EventEmitter {
 				throw new Error(msg);
 			}
 		}
-		let soa = {
-			name: lcdomain,
-			type: Packet.TYPE.SOA,
-			class: Packet.CLASS.IN,
-			ttl: 60,
-			primary: lcdomain,
-			admin: 'postmaster.' + lcdomain,
-			serial: this.#serial(),
-			refresh: 300,
-			retry: 3,
-			expiration: 10,
-			minimum: 10
-		};
-		let mx = {
-			name: lcdomain,
-			type: Packet.TYPE.MX,
-			class: Packet.CLASS.IN,
-			ttl: 60,
-			exchange: 'mail.' + lcdomain,
-			priority: 1
-		};
-		let ns = {
-			name: lcdomain,
-			type: Packet.TYPE.NS,
-			class: Packet.CLASS.IN,
-			ttl: 60,
-			ns: lcdomain
-		};
-		this.#domains.set(lcdomain, { soa, mx, ns } );
+		let serial = this.#serial();
+		this.#domains.set(lcdomain, { name: domain, serial, timeout: null } );
+		this.emit('adddomain', lcdomain);
 	}
 
 	#searchDomain(lcname) {
@@ -103,7 +82,7 @@ class NameDB extends EventEmitter {
 		if (! (typeof(domain) === 'string')) {
 			return false;
 		}
-		lcdomain = domain.toLowerCase();
+		let lcdomain = domain.toLowerCase();
 		if (! this.#domains.has(lcdomain)) {
 			return false;
 		}
@@ -117,6 +96,7 @@ class NameDB extends EventEmitter {
 			}
 		}
 		this.#domains.delete(lcdomain);
+		this.emit('removedomain', lcdomain);
 		return true;
 	}
 
@@ -132,14 +112,14 @@ class NameDB extends EventEmitter {
 		if (! (data && (typeof(data) === 'object'))) {
 			return false;
 		}
-		let n = { name: name, domain: dd.soa.name, data: {}, timeout: null };
+		let n = { name: name, domain: dd.name, data: {}, timeout: null };
 		let deleteA = false;
 		if ((typeof(data?.a) === 'string') && (ipaddr.IPv4.isValid(data.a))) {
 			n.data.a = data.a;
 		} else if (data?.a === '') {
 			deleteA = true;
 			n.data.a = null;
-		} else if ((data?.a === undefined) || (data?.a === null)) {
+		} else if (nullish(data?.a)) {
 			n.data.a = null;
 		} else {
 			return false;
@@ -150,7 +130,7 @@ class NameDB extends EventEmitter {
 		} else if (data?.aaaa === '') {
 			deleteAAAA = true;
 			n.data.aaaa = null;
-		} else if ((data?.aaaa === undefined) || (data?.aaaa === null)) {
+		} else if (nullish(data?.aaaa)) {
 			n.data.aaaa = null;
 		} else {
 			return false;
@@ -161,8 +141,19 @@ class NameDB extends EventEmitter {
 		} else if (data?.txt === '') {
 			deleteTXT = true;
 			n.data.txt = null;
-		} else if ((data?.txt === undefined) || (data?.txt === null)) {
+		} else if (nullish(data?.txt)) {
 			n.data.txt = null;
+		} else {
+			return false;
+		}
+		let deleteMX = false;
+		if (this.valid(data?.mx) && (data.mx !== '')) {
+			n.data.mx = data.mx;
+		} else if (data?.mx === '') {
+			deleteMX = true;
+			n.data.mx = null;
+		} else if (nullish(data?.mx)) {
+			n.data.mx = null;
 		} else {
 			return false;
 		}
@@ -176,7 +167,7 @@ class NameDB extends EventEmitter {
 											  }.bind(this),
 								   ttlMs);
 			n.expires = Date.now() + ttlMs;
-		} else if ((ttlMs === undefined) || (ttlMs === null) || (ttlMs === 0)) {
+		} else if (nullish(ttlMs) || (ttlMs === 0)) {
 			n.timeout = null;
 			n.expires = null;
 		} else {
@@ -189,14 +180,17 @@ class NameDB extends EventEmitter {
 				o.timeout = null;
 			}
 			if (merge) {
-				if ((n.data.a === null) && (o.data.a !== null) && (! deleteA)) {
+				if (nullish(n.data.a) && (! nullish(o.data.a)) && (! deleteA)) {
 					n.data.a = o.data.a;
 				}
-				if ((n.data.aaaa === null) && (o.data.aaaa !== null) && (! deleteAAAA)) {
+				if (nullish(n.data.aaaa) && (! nullish(o.data.aaaa)) && (! deleteAAAA)) {
 					n.data.aaaa = o.data.aaaa;
 				}
-				if ((n.data.txt === null) && (o.data.txt !== null) && (! deleteTXT)) {
+				if (nullish(n.data.txt) && (! nullish(o.data.txt)) && (! deleteTXT)) {
 					n.data.txt = o.data.txt;
+				}
+				if (nullish(n.data.mx) && (! nullish(o.data.mx)) && (! deleteMX)) {
+					n.data.mx = o.data.mx;
 				}
 			}
 		}
@@ -232,26 +226,41 @@ class NameDB extends EventEmitter {
 		let lcname = name.toLowerCase();
 		if (type === Packet.TYPE.SOA) {
 			let d = this.#domains.get(lcname);
-			if (d?.soa) {
-				return d.soa;
-			}
-			return false;
-		}
-		if (type === Packet.TYPE.MX) {
-			let d = this.#domains.get(lcname);
-			if (d?.mx) {
-				return d.mx;
+			if (d?.name && Number.isSafeInteger(d?.serial)) {
+				return {
+					name: lcname,
+					type: Packet.TYPE.SOA,
+					class: Packet.CLASS.IN,
+					ttl: 60,
+					primary: lcname,
+					admin: 'postmaster.' + lcname,
+					serial: d.serial,
+					refresh: 300,
+					retry: 3,
+					expiration: 10,
+					minimum: 10
+				};
 			}
 			return false;
 		}
 		if (type === Packet.TYPE.NS) {
 			let d = this.#domains.get(lcname);
-			if (d?.ns) {
-				return d.ns;
+			console.log(d);
+			if (d?.name) {
+				return {
+					name: lcname,
+					type: Packet.TYPE.NS,
+					class: Packet.CLASS.IN,
+					ttl: 60,
+					ns: lcname
+				};
 			}
 			return false;
 		}
 		let d = this.#hosts.get(lcname);
+		if (! d) {
+			return false;
+		}
 		switch (type) {
 		case Packet.TYPE.A:
 			if (d?.data?.a) {
@@ -286,9 +295,20 @@ class NameDB extends EventEmitter {
 				};
 			}
 			return false;
-		default:
+		case Packet.TYPE.MX:
+			if (d?.data?.mx) {
+				return {
+					name: name,
+					type: Packet.TYPE.MX,
+					class: Packet.CLASS.IN,
+					ttl: 60,
+					exchange: d.data.mx,
+					priority: 1
+				};
+			}
 			return false;
 		}
+		return false;
 	}
 
 	flush() {

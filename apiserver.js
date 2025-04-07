@@ -4,7 +4,9 @@ const EventEmitter = require('node:events');
 
 const ipaddr = require('ipaddr.js');
 const ApiSrv = require('tr-apisrv');
+
 const packageJson = require('./package.json');
+const nullish = require('./nullish');
 
 class ApiServer extends EventEmitter {
 
@@ -76,6 +78,9 @@ class ApiServer extends EventEmitter {
 					this.#db.addDomain(r.params.domain);
 					r.jsonResponse({ status: 'ok', code: 200 }, 200);
 				} catch  (e) {
+					if (this.#debug) {
+						console.error(e);
+					}
 					r.jsonResponse({ status: 'error', code: 400, message: 'Bad request (unable to add domain)' }, 400);
 					return;
 				}
@@ -84,6 +89,9 @@ class ApiServer extends EventEmitter {
 					this.#db.removeDomain(r.params.domain);
 					r.jsonResponse({ status: 'ok', code: 200 }, 200);
 				} catch  (e) {
+					if (this.#debug) {
+						console.error(e);
+					}
 					r.jsonResponse({ status: 'error', code: 400, message: 'Bad request (unable to remove domain)' }, 400);
 					return;
 				}
@@ -93,7 +101,9 @@ class ApiServer extends EventEmitter {
 			}
 			return;
 		} catch (e) {
-			console.error(e);
+			if (this.#debug) {
+				console.error(e);
+			}
 			r.jsonResponse({ status: 'error', code: 500, message: 'Internal error' }, 500);
 		}
 	}
@@ -104,8 +114,8 @@ class ApiServer extends EventEmitter {
 				r.jsonResponse({ status: 'error', code: 400, message: 'Bad request (host)' }, 400);
 				return;
 			}
-			let a, aaaa, txt, ttlMs, remove, merge;
-			if ((r.params.a === undefined) || (r.params.a === null)) {
+			let a, aaaa, txt, mx, ttlMs, remove, merge;
+			if (nullish(r.params.a)) {
 				a = undefined;
 			} else {
 				if (! (ipaddr.IPv4.isValid(r.params.a) || (r.params.a === ''))) {
@@ -114,7 +124,7 @@ class ApiServer extends EventEmitter {
 				}
 				a = r.params.a;
 			}
-			if ((r.params.aaaa === undefined) || (r.params.aaaa === null)) {
+			if (nullish(r.params.aaaa)) {
 				aaaa = undefined;
 			} else {
 				if (! (ipaddr.IPv6.isValid(r.params.aaaa) || (r.params.aaaa === ''))) {
@@ -123,7 +133,7 @@ class ApiServer extends EventEmitter {
 				}
 				aaaa = r.params.aaaa;
 			}
-			if ((r.params.txt === undefined) || (r.params.txt === null)) {
+			if (nullish(r.params.txt)) {
 				txt = undefined;
 			} else {
 				if (! (typeof(r.params.txt) === 'string')) {
@@ -132,7 +142,16 @@ class ApiServer extends EventEmitter {
 				}
 				txt = r.params.txt;
 			}
-			if ((r.params.ttl === undefined) || (r.params.ttl === null)) {
+			if (nullish(r.params.mx)) {
+				mx = undefined;
+			} else {
+				if (! (this.#db.valid(r.params.mx) || (r.params.mx === ''))) {
+					r.jsonResponse({ status: 'error', code: 400, message: 'Bad request (mx)' }, 400);
+					return;
+				}
+				mx = r.params.mx;
+			}
+			if (nullish(r.params.ttl)) {
 				ttlMs = undefined;
 			} else {
 				if (/^[1-9]\d{0,10}$/.test(r.params.ttl)) {
@@ -145,8 +164,8 @@ class ApiServer extends EventEmitter {
 					return;
 				}
 			}
-			if ((r.params.remove === undefined) || (r.params.remove === null)) {
-				remove = ((typeof(a) === 'string') || (typeof(aaaa) === 'string') || (typeof(txt) === 'string')) ? false : true;
+			if (nullish(r.params.remove)) {
+				remove = ((typeof(a) === 'string') || (typeof(aaaa) === 'string') || (typeof(txt) === 'string') || (typeof(mx) === 'string')) ? false : true;
 			} else if ([ false, 'false' ].includes(r.params.remove)) {
 				remove = false;
 			} else if ([ true, 'true' ].includes(r.params.remove)) {
@@ -180,7 +199,7 @@ class ApiServer extends EventEmitter {
 				}
 			} else {
 				try {
-					let rv = this.#db.set(r.params.host, { a, aaaa, txt }, ttlMs, merge);
+					let rv = this.#db.set(r.params.host, { a, aaaa, txt, mx }, ttlMs, merge);
 					if (! rv) {
 						throw new Error('Unable to add host');
 					}

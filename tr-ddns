@@ -130,13 +130,13 @@ async function writeConfig(fn, config) {
 	}
 	for (let d of config.domains) {
 		try {
-			if (db.validDomain(d?.soa?.name)) {
-				db.addDomain(d.soa.name);
+			if (db.validDomain(d?.name)) {
+				db.addDomain(d.name);
 			} else {
-				console.warn('Ignored invalid domqin entry (' + ((typeof(d?.soa?.name) === 'string') ? d.soa.name : '?') + ') from configuration.');
+				console.warn('Ignored invalid domqin entry (' + ((typeof(d?.name) === 'string') ? d.name : '?') + ') from configuration.');
 			}
 		} catch (e) {
-			console.warn('Ignored domqin entry (' + d.soa.name + ') that cannot be activated from configuration.');
+			console.warn('Ignored domqin entry (' + d.name + ') that cannot be activated from configuration.');
 		}
 	}
 	for (let h of config.hosts) {
@@ -179,6 +179,8 @@ async function writeConfig(fn, config) {
 		db.on('update', function(name) { changeCb('update', name); });
 		db.on('remove', function(name) { changeCb('remove', name); });
 		db.on('flush', function(name) { changeCb('flush'); });
+		db.on('removedomain', function(name) { changeCb('removedomain', name); });
+		db.on('adddomain', function(name) { changeCb('addomain', name); });
 	}
 
 	const api = (opt.value('http-api') ?

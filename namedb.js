@@ -120,7 +120,7 @@ class NameDB extends EventEmitter {
 		return true;
 	}
 
-	set(name, data, ttlMs) {
+	set(name, data, ttlMs, merge) {
 		if (! this.valid(name)) {
 			return false;
 		}
@@ -133,23 +133,35 @@ class NameDB extends EventEmitter {
 			return false;
 		}
 		let n = { name: name, domain: dd.soa.name, data: {}, timeout: null };
+		let deleteA = false;
 		if ((typeof(data?.a) === 'string') && (ipaddr.IPv4.isValid(data.a))) {
 			n.data.a = data.a;
-		} else if ((data?.a === undefined) || (data?.a === null) || (data?.a === '')) {
+		} else if (data?.a === '') {
+			deleteA = true;
+			n.data.a = null;
+		} else if ((data?.a === undefined) || (data?.a === null)) {
 			n.data.a = null;
 		} else {
 			return false;
 		}
+		let deleteAAAA = false;
 		if ((typeof(data?.aaaa) === 'string') && (ipaddr.IPv6.isValid(data.aaaa))) {
 			n.data.aaaa = ipaddr.IPv6.parse(data.aaaa).toNormalizedString();
-		} else if ((data?.aaaa === undefined) || (data?.aaaa === null) || (data?.aaaa === '')) {
+		} else if (data?.aaaa === '') {
+			deleteAAAA = true;
+			n.data.aaaa = null;
+		} else if ((data?.aaaa === undefined) || (data?.aaaa === null)) {
 			n.data.aaaa = null;
 		} else {
 			return false;
 		}
+		let deleteTXT = false;
 		if ((typeof(data?.txt) === 'string') && (data.txt !== '')) {
 			n.data.txt = data.txt;
-		} else if ((data?.txt === undefined) || (data?.txt === null) || (data?.txt === '')) {
+		} else if (data?.txt === '') {
+			deleteTXT = true;
+			n.data.txt = null;
+		} else if ((data?.txt === undefined) || (data?.txt === null)) {
 			n.data.txt = null;
 		} else {
 			return false;
@@ -175,6 +187,17 @@ class NameDB extends EventEmitter {
 			if (o.timeout) {
 				clearTimeout(o.timeout);
 				o.timeout = null;
+			}
+			if (merge) {
+				if ((n.data.a === null) && (o.data.a !== null) && (! deleteA)) {
+					n.data.a = o.data.a;
+				}
+				if ((n.data.aaaa === null) && (o.data.aaaa !== null) && (! deleteAAAA)) {
+					n.data.aaaa = o.data.aaaa;
+				}
+				if ((n.data.txt === null) && (o.data.txt !== null) && (! deleteTXT)) {
+					n.data.txt = o.data.txt;
+				}
 			}
 		}
 		this.#incrementSerial(n.domain);

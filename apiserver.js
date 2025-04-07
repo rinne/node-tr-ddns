@@ -104,33 +104,37 @@ class ApiServer extends EventEmitter {
 				r.jsonResponse({ status: 'error', code: 400, message: 'Bad request (host)' }, 400);
 				return;
 			}
-			let a, aaaa, txt, ttlMs, remove;
-			if (r.params.a !== undefined) {
-				if (! ipaddr.IPv4.isValid(r.params.a)) {
+			let a, aaaa, txt, ttlMs, remove, merge;
+			if ((r.params.a === undefined) || (r.params.a === null)) {
+				a = undefined;
+			} else {
+				if (! (ipaddr.IPv4.isValid(r.params.a) || (r.params.a === ''))) {
 					r.jsonResponse({ status: 'error', code: 400, message: 'Bad request (a)' }, 400);
 					return;
 				}
 				a = r.params.a;
-			} else {
-				a = undefined;
 			}
-			if (r.params.aaaa !== undefined) {
-				if (! ipaddr.IPv6.isValid(r.params.aaaa)) {
+			if ((r.params.aaaa === undefined) || (r.params.aaaa === null)) {
+				aaaa = undefined;
+			} else {
+				if (! (ipaddr.IPv6.isValid(r.params.aaaa) || (r.params.aaaa === ''))) {
 					r.jsonResponse({ status: 'error', code: 400, message: 'Bad request (aaaa)' }, 400);
 					return;
 				}
 				aaaa = r.params.aaaa;
-			} else {
-				aaaa = undefined;
 			}
-			if (r.params.txt !== undefined) {
+			if ((r.params.txt === undefined) || (r.params.txt === null)) {
+				txt = undefined;
+			} else {
 				if (! (typeof(r.params.txt) === 'string')) {
 					r.jsonResponse({ status: 'error', code: 400, message: 'Bad request (txt)' }, 400);
 					return;
 				}
 				txt = r.params.txt;
 			}
-			if (r.params.ttl !== undefined) {
+			if ((r.params.ttl === undefined) || (r.params.ttl === null)) {
+				ttlMs = undefined;
+			} else {
 				if (/^[1-9]\d{0,10}$/.test(r.params.ttl)) {
 					ttlMs = Number.parseInt(r.params.ttl) * 1000;
 				} else {
@@ -140,11 +144,9 @@ class ApiServer extends EventEmitter {
 					r.jsonResponse({ status: 'error', code: 400, message: 'Bad request (ttl)' }, 400);
 					return;
 				}
-			} else {
-				ttlMs = undefined;
 			}
-			if (r.params.remove === undefined) {
-				remove = (a || aaaa || txt) ? false : true;
+			if ((r.params.remove === undefined) || (r.params.remove === null)) {
+				remove = ((typeof(a) === 'string') || (typeof(aaaa) === 'string') || (typeof(txt) === 'string')) ? false : true;
 			} else if ([ false, 'false' ].includes(r.params.remove)) {
 				remove = false;
 			} else if ([ true, 'true' ].includes(r.params.remove)) {
@@ -153,8 +155,16 @@ class ApiServer extends EventEmitter {
 				r.jsonResponse({ status: 'error', code: 400, message: 'Bad request (remove)' }, 400);
 				return;
 			}
+			if ([ undefined, null, false, 'false' ].includes(r.params.merge)) {
+				merge = false;
+			} else if ([ true, 'true' ].includes(r.params.merge)) {
+				merge = true;
+			} else {
+				r.jsonResponse({ status: 'error', code: 400, message: 'Bad request (merge)' }, 400);
+				return;
+			}
 			if (remove) {
-				if (a || aaaa || txt || ttlMs) {
+				if (a || aaaa || (typeof(txt) === 'string') || ttlMs) {
 					r.jsonResponse({ status: 'error', code: 400, message: 'Bad request (conflicting params)' }, 400);
 					return;
 				}
@@ -170,7 +180,7 @@ class ApiServer extends EventEmitter {
 				}
 			} else {
 				try {
-					let rv = this.#db.set(r.params.host, { a, aaaa, txt }, ttlMs);
+					let rv = this.#db.set(r.params.host, { a, aaaa, txt }, ttlMs, merge);
 					if (! rv) {
 						throw new Error('Unable to add host');
 					}

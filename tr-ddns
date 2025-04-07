@@ -10,6 +10,8 @@ const ipaddr = require('ipaddr.js');
 const NameDB = require('./namedb');
 const NameServer = require('./nameserver');
 const ApiServer = require('./apiserver');
+const nullish = require('./nullish');
+const log = require('./log');
 
 async function commandLineOptsParse() {
 	if (opt !== null) {
@@ -171,7 +173,7 @@ async function writeConfig(fn, config) {
 	{
 		let changeCb = function(event, name) {
 			if (opt.value('debug')) {
-				console.log('EVENT:', event + '(' + (name ? name : '') + ')');
+				log('EVENT:', event + '(' + (name ? name : '') + ')');
 			}
 			(async function(db) { try { await writeConfigOrDie(db); } catch (e) {} })(db);
 		};
@@ -205,15 +207,44 @@ async function writeConfig(fn, config) {
 
 })();
 
-async function writeConfigOrDie(db) {
-	let config = db.dump();
-	try {
-		await writeConfig(opt.value('config-file'), config);
-	} catch (e) {
-		console.error('Unable to save current configuration (' + (e.code ?? '?') + ')');
-		process.exit(1);
-	}
-	if (opt.value('debug')) {
-		console.log('Config written');
-	}
-}
+
+
+const writeConfigOrDie = (function() {
+	let writeConfigTs = 0;
+	let writeConfigTimeout = null;
+	return async function(db) {
+		if (! nullish(writeConfigTimeout)) {
+			if (opt.value('debug')) {
+				log('Config write deferred to a timeout set earlier');
+			}
+			return;
+		}
+		if ((Date.now() - writeConfigTs) < 10000) {
+			if (opt.value('debug')) {
+				log('Config write deferred');
+			}
+			writeConfigTimeout = setTimeout(function() { writeConfigTimeout = null;
+														 (async function() {
+															 try {
+																 await writeConfigOrDie(db);
+															 } catch(e) {
+																 if (opt.value('debug')) {
+																	 log(e);
+																 }
+															 }
+														 })();
+													   },
+											10000);
+			return;
+		}
+		let config = db.dump();
+		try {
+			writeConfigTs = Date.now();
+			await writeConfig(opt.value('config-file'), config);
+			log('Config written');
+		} catch (e) {
+			console.error('Unable to save current configuration (' + (e.code ?? '?') + ')');
+			process.exit(1);
+		}
+	};
+})();

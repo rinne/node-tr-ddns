@@ -5,6 +5,7 @@ const { Packet } = require('dns2');
 const ipaddr = require('ipaddr.js');
 
 const nullish = require('./nullish');
+const log = require('./log');
 
 class NameDB extends EventEmitter {
 
@@ -245,7 +246,6 @@ class NameDB extends EventEmitter {
 		}
 		if (type === Packet.TYPE.NS) {
 			let d = this.#domains.get(lcname);
-			console.log(d);
 			if (d?.name) {
 				return {
 					name: lcname,

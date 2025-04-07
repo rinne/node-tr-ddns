@@ -7,6 +7,7 @@ const ApiSrv = require('tr-apisrv');
 
 const packageJson = require('./package.json');
 const nullish = require('./nullish');
+const log = require('./log');
 
 class ApiServer extends EventEmitter {
 
@@ -37,7 +38,7 @@ class ApiServer extends EventEmitter {
 									bodyReadTimeoutMs: 5000,
 									debug: this.#debug });
 		if (this.#debug) {
-			console.log('ApiServer: TCP:', address + ':' + port.toString());
+			log('ApiServer: TCP:', address + ':' + port.toString());
 		}
 	}
 
@@ -62,7 +63,7 @@ class ApiServer extends EventEmitter {
 			return this.#flush(r);
 		}
 		if (this.#debug) {
-			console.log('API:', r.url, '(not found)');
+			log('API:', r.url, '(not found)');
 		}
 		r.jsonResponse({ status: 'error', code: 404, message: 'Not found' }, 404);
 	}
@@ -205,7 +206,7 @@ class ApiServer extends EventEmitter {
 					}
 					r.jsonResponse({ status: 'ok', code: 200 }, 200);
 				} catch (e) {
-					console.log(e);
+					log(e);
 					r.jsonResponse({ status: 'error', code: 400, message: 'Bad request (unable to add/update host)' }, 400);
 					return;
 				}

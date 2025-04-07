@@ -14,10 +14,12 @@ class ApiServer extends EventEmitter {
 	#server;
 	#debug;
 	#db;
+	#stat;
 	
 	constructor(config) {
 		super();
 		this.#debug = config?.debug ? true : false;
+		this.#stat = { apiCalls: 0 };
 		let port = config?.port ?? 80;
 		let address = config?.address ?? '0.0.0.0';
 		if (! ipaddr.isValid(address)) {
@@ -47,6 +49,7 @@ class ApiServer extends EventEmitter {
 	}
 
 	async #requestCb(r) {
+		this.#stat.apiCalls++;
 		var res = r.res;
 		delete r.res;
 		switch (r.url) {
@@ -59,6 +62,8 @@ class ApiServer extends EventEmitter {
 			return this.#host(r);
 		case '/dump':
 			return this.#dump(r);
+		case '/stats':
+			return this.#stats(r);
 		case '/flush':
 			return this.#flush(r);
 		}
@@ -226,7 +231,16 @@ class ApiServer extends EventEmitter {
 			console.error(e);
 			r.jsonResponse({ status: 'error', code: 500, message: 'Internal error' }, 500);
 		}
+	}
 
+	async #stats(r) {
+		try {
+			let d = Object.assign({}, this.#db.stats(), this.#stat);
+			r.jsonResponse({ status: 'ok', code: 200, data: d }, 200);
+		} catch (e) {
+			console.error(e);
+			r.jsonResponse({ status: 'error', code: 500, message: 'Internal error' }, 500);
+		}
 	}
 
 	async #flush(r) {

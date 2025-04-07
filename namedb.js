@@ -12,10 +12,12 @@ class NameDB extends EventEmitter {
 	#hosts;
 	#domains;
 	#debug;
+	#stat;
 	
 	constructor(config) {
 		super();
 		this.#debug = config?.debug ? true : false;
+		this.#stat = { lookup: { total: 0, errors: 0 } };
 		this.#hosts = new Map();
 		this.#domains = new Map();
 		setInterval(function() { this.#updateSerials()}.bind(this), 3600000);
@@ -66,7 +68,7 @@ class NameDB extends EventEmitter {
 			}
 		}
 		let serial = this.#serial();
-		this.#domains.set(lcdomain, { name: domain, serial, timeout: null } );
+		this.#domains.set(lcdomain, { name: domain, serial, timeout: null, expires: null } );
 		this.emit('adddomain', lcdomain);
 	}
 
@@ -221,7 +223,9 @@ class NameDB extends EventEmitter {
 	}
 
 	get(name, type) {
+		this.#stat.lookup.total++;
 		if (! this.valid(name)) {
+			this.#stat.lookup.errors++;
 			return false;
 		}
 		let lcname = name.toLowerCase();
@@ -242,6 +246,7 @@ class NameDB extends EventEmitter {
 					minimum: 10
 				};
 			}
+			this.#stat.lookup.errors++;
 			return false;
 		}
 		if (type === Packet.TYPE.NS) {
@@ -255,59 +260,60 @@ class NameDB extends EventEmitter {
 					ns: lcname
 				};
 			}
+			this.#stat.lookup.errors++;
 			return false;
 		}
 		let d = this.#hosts.get(lcname);
-		if (! d) {
-			return false;
+		if (d) {
+			switch (type) {
+			case Packet.TYPE.A:
+				if (d?.data?.a) {
+					return {
+						name: name,
+						type: Packet.TYPE.A,
+						class: Packet.CLASS.IN,
+						ttl: 60,
+						address: d.data.a
+					};
+				}
+				break;
+			case Packet.TYPE.AAAA:
+				if (d?.data?.aaaa) {
+					return {
+						name: name,
+						type: Packet.TYPE.AAAA,
+						class: Packet.CLASS.IN,
+						ttl: 60,
+						address: d.data.aaaa
+					};
+				}
+				break;
+			case Packet.TYPE.TXT:
+				if (d?.data?.txt) {
+					return {
+						name: name,
+						type: Packet.TYPE.TXT,
+						class: Packet.CLASS.IN,
+						ttl: 60,
+						data: d.data.txt
+					};
+				}
+				break;
+			case Packet.TYPE.MX:
+				if (d?.data?.mx) {
+					return {
+						name: name,
+						type: Packet.TYPE.MX,
+						class: Packet.CLASS.IN,
+						ttl: 60,
+						exchange: d.data.mx,
+						priority: 1
+					};
+				}
+				break;
+			}
 		}
-		switch (type) {
-		case Packet.TYPE.A:
-			if (d?.data?.a) {
-				return {
-					name: name,
-					type: Packet.TYPE.A,
-					class: Packet.CLASS.IN,
-					ttl: 60,
-					address: d.data.a
-				};
-			}
-			return false;
-		case Packet.TYPE.AAAA:
-			if (d?.data?.aaaa) {
-				return {
-					name: name,
-					type: Packet.TYPE.AAAA,
-					class: Packet.CLASS.IN,
-					ttl: 60,
-					address: d.data.aaaa
-				};
-			}
-			return false;
-		case Packet.TYPE.TXT:
-			if (d?.data?.txt) {
-				return {
-					name: name,
-					type: Packet.TYPE.TXT,
-					class: Packet.CLASS.IN,
-					ttl: 60,
-					data: d.data.txt
-				};
-			}
-			return false;
-		case Packet.TYPE.MX:
-			if (d?.data?.mx) {
-				return {
-					name: name,
-					type: Packet.TYPE.MX,
-					class: Packet.CLASS.IN,
-					ttl: 60,
-					exchange: d.data.mx,
-					priority: 1
-				};
-			}
-			return false;
-		}
+		this.#stat.lookup.errors++;
 		return false;
 	}
 
@@ -321,6 +327,14 @@ class NameDB extends EventEmitter {
 		this.#hosts.clear();
 		this.#domains.clear();
 		this.emit('flush');
+	}
+
+	stats() {
+		return {
+			lookup: Object.assign({}, this.#stat.lookup),
+			domains: this.#domains.size,
+			hosts: this.#hosts.size
+		};
 	}
 
 	valid(name) {
@@ -338,6 +352,8 @@ class NameDB extends EventEmitter {
 		let domains = [];
 		let hosts = [];
 		for (let d of this.#domains.values()) {
+			d = Object.assign({}, d);
+			delete d.timeout;
 			domains.push(d);
 		}
 		for (let h of this.#hosts.values()) {

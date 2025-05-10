@@ -130,48 +130,68 @@ class NameDB extends EventEmitter {
 		if (! (data && (typeof(data) === 'object'))) {
 			return false;
 		}
-		let n = { name: name, lcname: lcname, domain: d.lcname, data: {}, timeout: null };
+		let n = { name: name, lcname: lcname, domain: d.lcname, data: { a: new Set(), aaaa: new Set(), txt: new Set(), mx: new Set() }, timeout: null };
 		let deleteA = false;
 		if ((typeof(data?.a) === 'string') && (ipaddr.IPv4.isValid(data.a))) {
+			n.data.a.add(data.a);
+		} else if (data?.a instanceof Set) {
+			deleteA = true;
 			n.data.a = data.a;
+		} else if (Array.isArray(data?.a)) {
+			deleteA = true;
+			n.data.a = new Set(data.a);
 		} else if (data?.a === '') {
 			deleteA = true;
-			n.data.a = null;
 		} else if (nullish(data?.a)) {
-			n.data.a = null;
+			/*NOTHING*/
 		} else {
 			return false;
 		}
 		let deleteAAAA = false;
 		if ((typeof(data?.aaaa) === 'string') && (ipaddr.IPv6.isValid(data.aaaa))) {
-			n.data.aaaa = ipaddr.IPv6.parse(data.aaaa).toNormalizedString();
+			n.data.aaaa.add(ipaddr.IPv6.parse(data.aaaa).toNormalizedString());
+		} else if (data?.aaaa instanceof Set) {
+			deleteAAAA = true;
+			n.data.aaaa = data.aaaa;
+		} else if (Array.isArray(data?.aaaa)) {
+			deleteAAAA = true;
+			n.data.aaaa = new Set(data.aaaa);
 		} else if (data?.aaaa === '') {
 			deleteAAAA = true;
-			n.data.aaaa = null;
 		} else if (nullish(data?.aaaa)) {
-			n.data.aaaa = null;
+			/*NOTHING*/
 		} else {
 			return false;
 		}
 		let deleteTXT = false;
 		if ((typeof(data?.txt) === 'string') && (data.txt !== '')) {
+			n.data.txt.add(data.txt);
+		} else if (data?.txt instanceof Set) {
+			deleteTXT = true;
 			n.data.txt = data.txt;
+		} else if (Array.isArray(data?.txt)) {
+			deleteTXT = true;
+			n.data.txt = new Set(data.txt);
 		} else if (data?.txt === '') {
 			deleteTXT = true;
-			n.data.txt = null;
 		} else if (nullish(data?.txt)) {
-			n.data.txt = null;
+			/*NOTHING*/
 		} else {
 			return false;
 		}
 		let deleteMX = false;
 		if (this.valid(data?.mx) && (data.mx !== '')) {
+			n.data.mx.add(data.mx);
+		} else if (data?.mx instanceof Set) {
+			deleteMX = true;
 			n.data.mx = data.mx;
+		} else if (Array.isArray(data?.mx)) {
+			deleteMX = true;
+			n.data.mx = new Set(data.mx);
 		} else if (data?.mx === '') {
 			deleteMX = true;
-			n.data.mx = null;
 		} else if (nullish(data?.mx)) {
-			n.data.mx = null;
+			/*NOTHING*/
 		} else {
 			return false;
 		}
@@ -201,17 +221,17 @@ class NameDB extends EventEmitter {
 				o.timeout = null;
 			}
 			if (merge) {
-				if (nullish(n.data.a) && (! nullish(o.data.a)) && (! deleteA)) {
-					n.data.a = o.data.a;
+				if (! deleteA) {
+					n.data.a = n.data.a.union(o.data.a);
 				}
-				if (nullish(n.data.aaaa) && (! nullish(o.data.aaaa)) && (! deleteAAAA)) {
-					n.data.aaaa = o.data.aaaa;
+				if (! deleteAAAA) {
+					n.data.aaaa = n.data.aaaa.union(o.data.aaaa);
 				}
-				if (nullish(n.data.txt) && (! nullish(o.data.txt)) && (! deleteTXT)) {
-					n.data.txt = o.data.txt;
+				if (! deleteTXT) {
+					n.data.txt = n.data.txt.union(o.data.txt);
 				}
-				if (nullish(n.data.mx) && (! nullish(o.data.mx)) && (! deleteMX)) {
-					n.data.mx = o.data.mx;
+				if (! deleteMX) {
+					n.data.mx = n.data.txt.union(o.data.mx);
 				}
 			}
 		}
@@ -238,6 +258,28 @@ class NameDB extends EventEmitter {
 		let rv = this.#hosts.delete(lcname);
 		this.emit('remove', lcname);
 		return rv;
+	}
+
+	getHostData(name) {
+		if (! this.valid(name)) {
+			if (this.#debug) {
+				log('Host name is invalid in query');
+			}
+			return false;
+		}
+		let lcname = name.toLowerCase();
+		if (! this.#searchDomain(lcname)) {
+			return undefined;
+		}
+		let h = this.#hosts.get(lcname);
+		if (! h) {
+			return { a: new Set(), aaaa: new Set(), txt: new Set(), mx: new Set() };
+		}
+		let d = {};
+		for (let r of [ 'a', 'aaaa', 'txt', 'mx' ]) {
+			d[r] = new Set(h.data[r]);
+		}
+		return d;
 	}
 
 	get(name, type) {
@@ -267,73 +309,79 @@ class NameDB extends EventEmitter {
 		switch (type) {
 		case Packet.TYPE.SOA:
 			if (d?.name && Number.isSafeInteger(d?.serial)) {
-				r = { name: lcname,
-					  type: Packet.TYPE.SOA,
-					  'class': Packet.CLASS.IN,
-					  ttl: 60,
-					  primary: lcname,
-					  admin: 'postmaster.' + lcname,
-					  serial: d.serial,
-					  refresh: 300,
-					  retry: 3,
-					  expiration: 10,
-					  minimum: 10 };
+				r = [ { name: lcname,
+						type: Packet.TYPE.SOA,
+						'class': Packet.CLASS.IN,
+						ttl: 60,
+						primary: lcname,
+						admin: 'postmaster.' + lcname,
+						serial: d.serial,
+						refresh: 300,
+						retry: 3,
+						expiration: 10,
+						minimum: 10 }
+					];
 			} else if (lcdomain !== null) {
 				r = null;
 			}
 			break;
 		case Packet.TYPE.NS:
 			if (d?.name) {
-				r = { name: lcname,
-					  type: Packet.TYPE.NS,
-					  'class': Packet.CLASS.IN,
-					  ttl: 60,
-					  ns: lcname };
+				r = [ { name: lcname,
+						type: Packet.TYPE.NS,
+						'class': Packet.CLASS.IN,
+						ttl: 60,
+						ns: lcname } ];
 			} else if (lcdomain !== null) {
 				r = null;
 			}
 			break;
 		case Packet.TYPE.A:
-			if (h?.data?.a) {
-				r = { name: lcname,
-					  type: Packet.TYPE.A,
-					  'class': Packet.CLASS.IN,
-					  ttl: 60,
-					  address: h.data.a };
+			if ((h?.data?.a instanceof Set) && (h.data.a.size > 0)) {
+				r = Array.from(h.data.a).map((x) => ({
+					name: lcname,
+					type: Packet.TYPE.A,
+					'class': Packet.CLASS.IN,
+					ttl: 60,
+					address: x }));
 			} else if (lcdomain !== null) {
 				r = null;
 			}
 			break;
 		case Packet.TYPE.AAAA:
-			if (h?.data?.aaaa) {
-				r = { name: lcname,
-					  type: Packet.TYPE.AAAA,
-					  'class': Packet.CLASS.IN,
-					  ttl: 60,
-					  address: h.data.aaaa };
+			if ((h?.data?.aaaa instanceof Set) && (h.data.aaaa.size > 0)) {
+				r = Array.from(h.data.aaaa).map((x) => ({
+					name: lcname,
+					type: Packet.TYPE.AAAA,
+					'class': Packet.CLASS.IN,
+					ttl: 60,
+					address: x }));
 			} else if (lcdomain !== null) {
 				r = null;
 			}
 			break;
 		case Packet.TYPE.TXT:
-			if (h?.data?.txt) {
-				r = { name: lcname,
-					  type: Packet.TYPE.TXT,
-					  'class': Packet.CLASS.IN,
-					  ttl: 60,
-					  data: h.data.txt };
+			if ((h?.data?.txt instanceof Set) && (h.data.txt.size > 0)) {
+				r = Array.from(h.data.txt).map((x) => ({
+					name: lcname,
+					type: Packet.TYPE.TXT,
+					'class': Packet.CLASS.IN,
+					ttl: 60,
+					data: x }));
 			} else if (lcdomain !== null) {
 				r = null;
 			}
 			break;
 		case Packet.TYPE.MX:
-			if (h?.data?.mx) {
-				r = { name: lcname,
-					  type: Packet.TYPE.MX,
-					  'class': Packet.CLASS.IN,
-					  ttl: 60,
-					  exchange: h.data.mx,
-					  priority: 1 };
+			if ((h?.data?.mx instanceof Set) && (h.data.txt.mc > 0)) {
+				let prio = 1;
+				r = Array.from(h.data.mx).map((x) => ({
+					name: lcname,
+					type: Packet.TYPE.MX,
+					'class': Packet.CLASS.IN,
+					ttl: 60,
+					exchange: x,
+					priority: prio++ }));
 			} else if (lcdomain !== null) {
 				r = null;
 			}
@@ -365,7 +413,7 @@ class NameDB extends EventEmitter {
 		if (r === false) {
 			this.#stat.lookup.errors++;
 		}
-		return r;
+		return (r === null) ? [] : r;
 	}
 
 	flush() {
@@ -399,7 +447,7 @@ class NameDB extends EventEmitter {
 	}
 
 	dump() {
-
+		console.log(this.#hosts);
 		let domains = [];
 		let hosts = [];
 		for (let d of this.#domains.values()) {
@@ -408,9 +456,13 @@ class NameDB extends EventEmitter {
 			domains.push(d);
 		}
 		for (let h of this.#hosts.values()) {
-			h = Object.assign({}, h);
-			delete h.timeout;
-			hosts.push(h);
+			let hh = Object.assign({}, h);
+			hh.data = Object.assign({}, hh.data);
+			for (let r of [ 'a', 'aaaa', 'txt', 'mx' ]) {
+				hh.data[r] = Array.from(hh.data[r]);
+			}
+			delete hh.timeout;
+			hosts.push(hh);
 		}
 		return { hosts, domains };
 	}

@@ -143,7 +143,7 @@ class NameServer extends EventEmitter {
 			if (this.#debug) {
 				log('response:', JSON.stringify(r, null, 2));
 			}
-			response.answers.push(r);
+			response.answers.push(...r);
 		}
 		send(response);
 	}

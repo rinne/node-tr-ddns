@@ -66,6 +66,8 @@ class ApiServer extends EventEmitter {
 			return this.#stats(r);
 		case '/flush':
 			return this.#flush(r);
+		case '/record':
+			return this.#record(r);
 		}
 		if (this.#debug) {
 			log('API:', r.url, '(not found)');
@@ -217,6 +219,116 @@ class ApiServer extends EventEmitter {
 				}
 			}
 			return;
+		} catch (e) {
+			console.error(e);
+			r.jsonResponse({ status: 'error', code: 500, message: 'Internal error' }, 500);
+		}
+	}
+
+	async #record(r) {
+		try {
+			if (! this.#db.valid(r.params.host)) {
+				r.jsonResponse({ status: 'error', code: 400, message: 'Bad request (host)' }, 400);
+				return;
+			}
+			if (! [ 'set', 'add', 'remove', 'clear' ].includes(r.params.command)) {
+				r.jsonResponse({ status: 'error', code: 400, message: 'Bad request (command)' }, 400);
+				return;
+			}
+			if (! [ 'a', 'aaaa', 'txt', 'mx' ].includes(r.params.type)) {
+				r.jsonResponse({ status: 'error', code: 400, message: 'Bad request (type)' }, 400);
+				return;
+			}
+			let d = this.#db.getHostData(r.params.host);
+			if (! d) {
+				r.jsonResponse({ status: 'error', code: 400, message: 'Bad request (no matching domain)' }, 400);
+				return;
+			}
+			console.log(d);
+			switch (r.params.type) {
+			case 'a':
+				if (r.params.command === 'clear') {
+					d.a = new Set();
+				} else if (ipaddr.IPv4.isValid(r.params.value)) {
+					let address = ipaddr.IPv4.parse(r.params.value).toString();
+					switch (r.params.command) {
+					case 'set':
+						d.a = new Set([ address ]);
+						break;
+					case 'add':
+						d.a = d.a.add(address);
+						break;
+					case 'remove':
+						d.a.delete(address);
+						break;
+					}
+				} else {
+					r.jsonResponse({ status: 'error', code: 400, message: 'Bad request (value)' }, 400);
+				}
+				break;
+			case 'aaaa':
+				if (r.params.command === 'clear') {
+					d.aaaa = new Set();
+				} else if (ipaddr.IPv6.isValid(r.params.value)) {
+					let address = ipaddr.IPv6.parse(r.params.value).toNormalizedString();
+					switch (r.params.command) {
+					case 'set':
+						d.aaaa = new Set([ address ]);
+						break;
+					case 'add':
+						d.aaaa = d.aaaa.add(address);
+						break;
+					case 'remove':
+						d.aaaa.delete(address);
+						break;
+					}
+				} else {
+					r.jsonResponse({ status: 'error', code: 400, message: 'Bad request (value)' }, 400);
+				}
+				break;
+			case 'txt':
+				if (r.params.command === 'clear') {
+					d.txt = new Set();
+				} else if ((typeof(r.params.value) === 'string') && (r.params.value !== '')) {
+					let text = r.params.value;
+					switch (r.params.command) {
+					case 'set':
+						d.txt = new Set([ text ]);
+						break;
+					case 'add':
+						d.txt = d.txt.add(text);
+						break;
+					case 'remove':
+						d.txt.delete(text);
+						break;
+					}
+				} else {
+					r.jsonResponse({ status: 'error', code: 400, message: 'Bad request (value)' }, 400);
+				}
+				break;
+			case 'mx':
+				if (r.params.command === 'clear') {
+					d.mx = new Set();
+				} else if (this.#db.validDomain(r.params.value)) {
+					let host = r.params.value.toLowerCase();
+					switch (r.params.command) {
+					case 'set':
+						d.mx = new Set([ host ]);
+						break;
+					case 'add':
+						d.mx = d.mx.add(host);
+						break;
+					case 'remove':
+						d.mx.delete(host);
+						break;
+					}
+				} else {
+					r.jsonResponse({ status: 'error', code: 400, message: 'Bad request (value)' }, 400);
+				}
+				break;
+			}
+			this.#db.set(r.params.host, d);
+			r.jsonResponse({ status: 'ok', code: 200 }, 200);
 		} catch (e) {
 			console.error(e);
 			r.jsonResponse({ status: 'error', code: 500, message: 'Internal error' }, 500);

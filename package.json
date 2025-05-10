@@ -1,6 +1,6 @@
 {
 	"name": "tr-ddns",
-	"version": "1.0.9",
+	"version": "1.0.10",
 	"description": "Simple DDNS Server",
 	"main": "index.js",
 	"scripts": {

@@ -391,7 +391,7 @@ class NameDB extends EventEmitter {
 	valid(name) {
 		return ((typeof(name) === 'string') &&
 				(name.length <= 253) &&
-				/^([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)(\.([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)){1,125}$/.test(name));
+				/^(_?[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)(\.([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)){1,125}$/.test(name));
 	}
 
 	validDomain(domain) {

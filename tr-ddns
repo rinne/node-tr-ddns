@@ -69,6 +69,18 @@ async function commandLineOptsParse() {
 				 { longName: 'http-api',
 				   description: 'Enable HTTP-API server',
 				   environment: 'TR_DDNS_OPT_HTTP_API' },
+				 { longName: 'http-api-user',
+				   description: 'Required username for HTTP API server',
+				   hasArg: true,
+				   optArgCb: ((x) => ((x === '') ? undefined : x)),
+				   environment: 'TR_DDNS_OPT_HTTP_API_USER',
+				   requiresAlso: [ 'http-api-password' ] },
+				 { longName: 'http-api-password',
+				   description: 'Required passwordname for HTTP API server',
+				   hasArg: true,
+				   optArgCb: ((x) => ((x === '') ? undefined : x)),
+				   environment: 'TR_DDNS_OPT_HTTP_API_PASSWORD',
+				   requiresAlso: [ 'http-api-user' ] },
 				 { longName: 'http-api-listen-address',
 				   description: 'Listen address for HTTP control server',
 				   hasArg: true,
@@ -106,6 +118,8 @@ async function writeConfig(fn, config) {
 	const db = new NameDB({
 		debug: opt.value('debug')
 	});
+
+	const basicAuthCookie = opt.value('http-api-user') ? Buffer.from((opt.value('http-api-user') + ':' + opt.value('http-api-password'))).toString('base64') : null;
 
 	let config;
 
@@ -192,7 +206,8 @@ async function writeConfig(fn, config) {
 				 new ApiServer({ nameDB: db,
 								 port: opt.value('http-api-listen-port'),
 								 address: opt.value('http-api-listen-address'),
-								 debug: opt.value('debug') }) :
+								 debug: opt.value('debug'),
+								 basicAuth: basicAuthCookie }) :
 				 undefined);
 
 	const server = ((opt.value('udp') || opt.value('tcp')) ?

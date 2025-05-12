@@ -15,11 +15,13 @@ class ApiServer extends EventEmitter {
 	#debug;
 	#db;
 	#stat;
+	#basicAuth;
 	
 	constructor(config) {
 		super();
 		this.#debug = config?.debug ? true : false;
 		this.#stat = { apiCalls: 0 };
+		this.#basicAuth = config?.basicAuth ?? null;
 		let port = config?.port ?? 80;
 		let address = config?.address ?? '0.0.0.0';
 		if (! ipaddr.isValid(address)) {
@@ -52,6 +54,16 @@ class ApiServer extends EventEmitter {
 		this.#stat.apiCalls++;
 		var res = r.res;
 		delete r.res;
+
+		if (this.#basicAuth) {
+			let m, a = r.headers?.authorization;
+			if (! (a && (m = a.match(/^\s*Basic\s+([^\s]+)\s*$/)) && (m[1] === this.#basicAuth))) {
+				res.setHeader('WWW-Authenticate', 'Basic realm="TR-DDNS", charset="UTF-8"');
+				r.jsonResponse({ status: 'error', code: 401, message: 'Unauthorized' }, 401);	
+ 				return;
+			}
+		}
+
 		switch (r.url) {
 		case '/':
 			r.jsonResponse({ status: 'ok', code: 200, data: { package: packageJson?.name ?? '?', version: packageJson?.version ?? '?' } }, 200);

@@ -1,10 +1,12 @@
 # Changelog
 
+Every version published to npm, newest first.
+
 ## 2.0.0 (unreleased)
 
 Everything since 1.1.1. The command line, the API calls, the
 configuration file and the library interface of 1.1.1 keep working;
-[docs/upgrading.md](docs/upgrading.md) describes what behaves
+[the upgrade notes](https://github.com/rinne/node-tr-ddns/blob/main/docs/upgrading.md) describes what behaves
 differently.
 
 ### Requirements
@@ -165,15 +167,47 @@ differently.
 
 - A host name may start with an underscore.
 
-## 1.0.1 to 1.0.9 (2025-04-06 to 2025-04-07)
+## 1.0.9 (2025-04-07)
 
-- MX records and simplified domain handling.
-- `merge` parameter for `/host`.
-- Synthesised NS and SOA records for served domains.
-- Logging, and less frequent writes of the configuration file.
 - Queries for names outside the served domains get no answer.
+
+## 1.0.8 (2025-04-07)
+
 - `/stats` API call.
-- Fixes to host and domain name validation.
+- Typos in the warnings about the configuration file.
+
+## 1.0.7 (2025-04-07)
+
+- Time stamps in the log output.
+- The configuration file is written at most once in ten seconds.
+
+## 1.0.6 (2025-04-07)
+
+- MX records.
+- `merge` parameter for `/host`.
+- A domain is added by its name alone.
+
+## 1.0.5 (2025-04-06)
+
+- NS records are synthesised for the served domains.
+
+## 1.0.4 (2025-04-06)
+
+- `/` API call, which identifies the server, and `/flush`.
+
+## 1.0.3 (2025-04-06)
+
+- Writes of the configuration file are logged only with `--debug`.
+
+## 1.0.2 (2025-04-06)
+
+- Single character labels are accepted in names.
+- An entry of the configuration file that cannot be used is skipped with
+  a warning instead of stopping the program.
+
+## 1.0.1 (2025-04-06)
+
+- Fixes to the validation of domain and host names.
 
 ## 1.0.0 (2025-04-06)
 

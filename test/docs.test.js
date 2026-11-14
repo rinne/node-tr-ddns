@@ -301,8 +301,21 @@ describe('documentation', function() {
 		}
 	});
 
-	test('the changelog and the upgrade notes exist and name the release', function() {
-		assert.match(read('CHANGELOG.md'), /^## 2\.0\.0/m);
+	test('the changelog has an entry for the current and for every published version', function() {
+		let changelog = read('CHANGELOG.md');
+		let versions = [ ...changelog.matchAll(/^## (\d+\.\d+\.\d+) \((\d{4}-\d\d-\d\d|unreleased)\)$/gm) ].map((m) => m[1]);
+		assert.equal([ ...changelog.matchAll(/^## /gm) ].length, versions.length, 'every heading is a version with a date');
+		assert.equal(new Set(versions).size, versions.length, 'no version twice');
+		// Everything published before the changelog was started.
+		assert.deepEqual(versions.slice(-13), [ '1.1.1', '1.1.0', '1.0.10', '1.0.9', '1.0.8', '1.0.7', '1.0.6', '1.0.5',
+												'1.0.4', '1.0.3', '1.0.2', '1.0.1', '1.0.0' ]);
+		assert.ok(versions.includes('2.0.0'));
+		assert.ok(versions.includes(require('../package.json').version), 'the version in package.json has an entry');
+		// The changelog is in the npm package, where a relative link
+		// would lead nowhere.
+		for (let m of changelog.matchAll(/\]\(([^)\s]+)\)/g)) {
+			assert.ok(m[1].startsWith(REPO_URL), m[1]);
+		}
 		assert.match(read('docs/upgrading.md'), /^# Upgrading from 1\.x to 2\.0$/m);
 	});
 

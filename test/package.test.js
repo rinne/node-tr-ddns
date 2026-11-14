@@ -13,6 +13,7 @@ const pkg = require('../package.json');
 // Everything that goes into the npm package. A file that is not on
 // this list must not be published, and a file on this list must be.
 const PUBLISHED = [
+	'CHANGELOG.md',
 	'LICENSE',
 	'MIT-RINNE',
 	'README.md',
@@ -104,10 +105,9 @@ describe('npm package', function() {
 		}
 	});
 
-	test('documents other than the README stay out of the package', function() {
+	test('the reference documents and the tests stay out of the package', function() {
 		assert.ok(fs.existsSync(path.join(ROOT, 'docs', 'api.md')));
-		assert.ok(fs.existsSync(path.join(ROOT, 'CHANGELOG.md')));
-		assert.ok(! PUBLISHED.some((f) => (f.startsWith('docs/') || (f === 'CHANGELOG.md') || f.startsWith('test/'))));
+		assert.ok(! PUBLISHED.some((f) => (f.startsWith('docs/') || f.startsWith('test/'))));
 	});
 
 	test('the licence files are identical', function() {

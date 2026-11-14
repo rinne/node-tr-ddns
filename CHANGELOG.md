@@ -4,6 +4,13 @@ Every version published to npm, newest first.
 
 ## 3.0.0 (unreleased)
 
+New ways to run the server: beside another product with only DNS
+exposed, managed through a control socket and `tr-ddns-ctl`; without a
+configuration file; and with DNS over HTTP behind a TLS proxy. Nothing
+that works with 2.0.0 is removed or changed;
+[the upgrade notes](https://github.com/rinne/node-tr-ddns/blob/main/docs/upgrading.md)
+list the few differences that can be noticed.
+
 ### Program
 
 - `--control-socket` serves the API on a Unix domain socket: no network

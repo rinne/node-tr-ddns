@@ -129,6 +129,9 @@ can use a Unix socket:
 curl --unix-socket /run/tr-ddns/control.sock 'http://localhost/stats'
 ```
 
+Keep the socket in a directory that only the intended users can enter.
+Unix domain sockets are for Linux, macOS and other Unix systems.
+
 The socket file is created at startup and removed at exit. A socket file
 left behind by a server that was killed is replaced; a socket that
 another server is listening on, or a file that is not a socket, stops

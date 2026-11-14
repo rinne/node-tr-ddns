@@ -1,4 +1,34 @@
-# Upgrading from 1.x to 2.0
+# Upgrading
+
+What changes for someone who already runs `tr-ddns` when moving to a new
+major version. [CHANGELOG.md](../CHANGELOG.md) has the complete list
+with the additions.
+
+## From 2.x to 3.0
+
+Nothing that works with 2.0.0 stops working, and nothing needs to be
+done. The command line, the API, the configuration file and the library
+interface are those of 2.0.0 with additions. The new major number marks
+the new ways to run the server: beside another product, managed through
+a control socket and `tr-ddns-ctl`, without a configuration file, and
+with DNS over HTTP behind a proxy.
+
+The differences that can be noticed without using anything new:
+
+- **Starting without `--config-file`.** The message is now "Either
+  --config-file or --memory-only must be given", and the usage text is
+  no longer printed with it. The exit status is still 1.
+- **`/stats`.** `dns` counts queries from every way they can arrive,
+  which without `--doh` are the same as before.
+- **The package installs a second command**, `tr-ddns-ctl`.
+- **Rate limiting.** A second of the limit now starts with the first
+  query in it and not on a fixed beat. The limit itself is the same.
+
+For a program that uses the library, `NameServer` and `ApiServer` behave
+as before. They are now layers on `DnsCore` and `ApiCore`, which a
+program may also use directly.
+
+## From 1.x to 2.0
 
 Version 2.0.0 keeps the command line, the API calls, the configuration
 file and the library interface of 1.1.1. A 1.1.1 command line, a 1.1.1
@@ -6,7 +36,7 @@ configuration file and a 1.1.1 API client work as they are. What does
 change is listed here; [CHANGELOG.md](../CHANGELOG.md) has the complete
 list with the additions.
 
-## Before upgrading
+### Before upgrading
 
 - **Node.js 24 or newer is required.**
 - The server now writes the configuration file through a temporary file
@@ -16,7 +46,7 @@ list with the additions.
   by 1.x, and 1.x reads files written by 2.0 but ignores the record
   types and domain settings it does not know.
 
-## What a DNS client sees
+### What a DNS client sees
 
 These bring the server in line with what resolvers expect from an
 authoritative server.
@@ -41,7 +71,7 @@ If a resolver has cached "no such name" for a name, it now really is
 cached, for the SOA minimum of the domain (10 seconds by default). A
 host added right after a failed lookup can take that long to appear.
 
-## What an API client sees
+### What an API client sees
 
 | | 1.1.1 | 2.0.0 |
 | --- | --- | --- |
@@ -64,7 +94,7 @@ host added right after a failed lookup can take that long to appear.
 Responses to successful calls and the messages of the 400 errors are the
 same as before.
 
-## What the operator sees
+### What the operator sees
 
 - **A listener that cannot be started ends the program** with status 1
   and a message. In 1.1.1 a DNS port that was in use was silently
@@ -88,7 +118,7 @@ same as before.
   provides the `tr-ddns` command. The old path `tr-ddns` at the top of
   the package still works.
 
-## What a program using the library sees
+### What a program using the library sees
 
 - `require('tr-ddns')` and `require('tr-ddns/namedb')`,
   `/nameserver`, `/apiserver`, `/log`, `/nullish` and `/ts` work as

@@ -12,7 +12,11 @@ else where editing a zone file is too slow.
   host.
 - Hosts can have a lifetime, after which they disappear on their own.
 - DNS over UDP and TCP, IPv4 and IPv6.
-- Everything is kept in one JSON file.
+- Everything is kept in one JSON file, or in memory only.
+- Can run beside another server, for example in the same container,
+  with only the DNS port exposed: it is then managed through a Unix
+  socket with the `tr-ddns-ctl` command.
+- Optional DNS over HTTP (RFC 8484) for a TLS reverse proxy in front.
 - Can be used as a library.
 
 It serves the domains it is given and nothing else: it is not a
@@ -102,6 +106,26 @@ The API is open to everyone who can reach it unless a user and a
 password are set. Let it listen on `127.0.0.1`, or protect it; see
 [securing the API](https://github.com/rinne/node-tr-ddns/blob/main/docs/deployment.md#securing-the-api).
 
+### Without a network API
+
+With `--control-socket` the API is served on a Unix domain socket, and
+`--http-api` can stay off. The `tr-ddns-ctl` command, which comes with
+the package, talks to that socket:
+
+```
+tr-ddns -c ddns.json --udp --tcp --control-socket=/run/tr-ddns/control.sock
+
+export TR_DDNS_OPT_CONTROL_SOCKET=/run/tr-ddns/control.sock
+tr-ddns-ctl wait
+tr-ddns-ctl domain ensure example.com
+tr-ddns-ctl host set www.example.com a=192.0.2.10
+tr-ddns-ctl host list
+```
+
+See [tr-ddns-ctl](https://github.com/rinne/node-tr-ddns/blob/main/docs/ctl.md)
+and, for running inside a container next to a web server,
+[deployment](https://github.com/rinne/node-tr-ddns/blob/main/docs/deployment.md#inside-a-container-with-a-web-server).
+
 ## API
 
 All API methods work either with GET method and URL parameters or POST
@@ -114,6 +138,7 @@ status is the same as `code`.
 | --- | --- |
 | `/domain?domain=D` | Start serving a domain. Optional settings: `ns`, `admin`, `ttl`, `refresh`, `retry`, `expiration`, `minimum`. |
 | `/domain?domain=D&update=true&...` | Change the settings of a served domain. |
+| `/domain?domain=D&ensure=true` | Start serving a domain unless it is served already. For callers that run more than once. |
 | `/domain?domain=D&remove=true` | Stop serving a domain and remove its hosts. |
 | `/host?host=H&a=...&aaaa=...&txt=...` | Set the records of a host, replacing what it had. Record parameters: `a`, `aaaa`, `txt`, `mx`, `cname`, `ns`, `srv`, `caa`; repeat one for several values. |
 | `/host?host=H&...&ttl=SECONDS` | The same, and remove the host after the given time. |
@@ -149,7 +174,7 @@ Two things to keep in mind:
 - [Configuration file](https://github.com/rinne/node-tr-ddns/blob/main/docs/config-file.md): format and how it is written.
 - [Deployment](https://github.com/rinne/node-tr-ddns/blob/main/docs/deployment.md): delegation, port 53, securing the API, running as a service.
 - [Library](https://github.com/rinne/node-tr-ddns/blob/main/docs/library.md): using the server from another program.
-- [Upgrading from 1.x](https://github.com/rinne/node-tr-ddns/blob/main/docs/upgrading.md): what changed in 2.0.
+- [Upgrading](https://github.com/rinne/node-tr-ddns/blob/main/docs/upgrading.md): what changes when moving from 1.x or 2.x.
 - [Changelog](https://github.com/rinne/node-tr-ddns/blob/main/CHANGELOG.md).
 
 ## Author

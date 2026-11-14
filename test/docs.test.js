@@ -343,7 +343,10 @@ describe('documentation', function() {
 		for (let m of changelog.matchAll(/\]\(([^)\s]+)\)/g)) {
 			assert.ok(m[1].startsWith(REPO_URL), m[1]);
 		}
-		assert.match(read('docs/upgrading.md'), /^# Upgrading from 1\.x to 2\.0$/m);
+		let upgrading = read('docs/upgrading.md');
+		assert.match(upgrading, /^## From 1\.x to 2\.0$/m);
+		assert.match(upgrading, /^## From 2\.x to 3\.0$/m);
+		assert.ok(versions.includes('3.0.0'));
 	});
 
 });

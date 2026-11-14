@@ -66,6 +66,7 @@ Options:
             --log-level=<arg>                Log level: none, error, warn, info or debug
   -c <arg>  --config-file=<arg>              Configuration file
             --init-config-file               Initialize configuration file and exit
+            --memory-only                    Run without configuration file: start empty and save nothing
             --config-write-interval=<arg>    Shortest time in seconds between writes of configuration file
             --udp                            Enable UDP server
             --udp-listen-address=<arg>       Listen address(es) for UDP server, comma separated

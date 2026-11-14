@@ -334,7 +334,7 @@ async function startCli(args, opts) {
 			delete env[k];
 		}
 	}
-	let c = spawn(process.execPath, [ opts?.cli ?? CLI ].concat(args), { env: env, stdio: [ 'ignore', 'pipe', 'pipe' ] });
+	let c = spawn(process.execPath, [ opts?.cli ?? CLI ].concat(args), { env: env, cwd: opts?.cwd, stdio: [ 'ignore', 'pipe', 'pipe' ] });
 	let h = { child: c, stdout: '', stderr: '', exited: false, code: null, signal: null };
 	c.stdout.on('data', function(d) { h.stdout += d; });
 	c.stderr.on('data', function(d) { h.stderr += d; });

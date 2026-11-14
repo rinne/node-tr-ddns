@@ -73,6 +73,27 @@ describe('command line', function() {
 		}
 	});
 
+	test('either a configuration file or --memory-only is needed, not both', async function() {
+		let dir = tmpDir();
+		let cf = path.join(dir, 'c.json');
+		try {
+			let r = await runCli([]);
+			assert.equal(r.code, 1);
+			assert.match(r.stderr, /Either --config-file or --memory-only must be given/);
+			r = await runCli([ '--udp' ]);
+			assert.equal(r.code, 1);
+			r = await runCli([ '--memory-only', '-c', cf ]);
+			assert.notEqual(r.code, 0);
+			r = await runCli([ '--memory-only', '--init-config-file' ]);
+			assert.notEqual(r.code, 0);
+			r = await runCli([ '--init-config-file' ]);
+			assert.notEqual(r.code, 0);
+			assert.equal(fs.existsSync(cf), false);
+		} finally {
+			fs.rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
 	test('--init-config-file creates an empty configuration once', async function() {
 		let dir = tmpDir();
 		let cf = path.join(dir, 'c.json');
@@ -322,6 +343,44 @@ describe('server started from the command line', function() {
 		let local = await startServer(t, { hosts: [], domains: [] });
 		await local.h.stop();
 		assert.doesNotMatch(local.h.stderr, /Warning/);
+	});
+
+	describe('--memory-only', function() {
+
+		async function start(t, env, extra) {
+			let dir = tmpDir();
+			let dnsPort = await freePort();
+			let apiPort = await freeTcpPort();
+			let base = 'http://127.0.0.1:' + apiPort;
+			let h = await startCli([ '--udp', '--udp-listen-address=127.0.0.1', '--udp-listen-port=' + dnsPort,
+									 '--http-api', '--http-api-listen-address=127.0.0.1', '--http-api-listen-port=' + apiPort ].concat(extra ?? []),
+								   { env: env, waitUrl: base + '/', cwd: dir });
+			t.after(async function() {
+				await h.stop('SIGKILL');
+				fs.rmSync(dir, { recursive: true, force: true });
+			});
+			return { h, dir, dnsPort, base };
+		}
+
+		test('starts empty, serves what it is given and saves nothing', async function(t) {
+			let s = await start(t, undefined, [ '--memory-only' ]);
+			assert.deepEqual((await apiCall(s.base, '/dump')).body.data, { hosts: [], domains: [] });
+			assert.equal((await apiCall(s.base, '/domain', { domain: 'example.com' })).status, 200);
+			assert.equal((await apiCall(s.base, '/host', { host: 'h.example.com', a: '1.2.3.4', ttl: '3600' })).status, 200);
+			let r = await dnsQuery(s.dnsPort, 'h.example.com', TYPE.A);
+			assert.deepEqual(r.answers.map((a) => a.address), [ '1.2.3.4' ]);
+			await new Promise((r) => setTimeout(r, 200));
+			await s.h.stop('SIGTERM');
+			assert.equal(s.h.code, 0);
+			assert.deepEqual(fs.readdirSync(s.dir), [], 'nothing was written');
+			assert.doesNotMatch(s.h.stdout, /Config written/);
+		});
+
+		test('can be given in the environment', async function(t) {
+			let s = await start(t, { TR_DDNS_OPT_MEMORY_ONLY: 'true' });
+			assert.equal((await apiCall(s.base, '/domain', { domain: 'example.com' })).status, 200);
+		});
+
 	});
 
 	test('--dns-refuse-out-of-zone answers REFUSED outside the served domains', async function(t) {

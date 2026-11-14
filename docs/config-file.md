@@ -11,6 +11,15 @@ write replaces the file with what the server has in memory. To change it
 by hand, stop the server first. The usual way to change anything is the
 [API](api.md).
 
+## Running without one
+
+With `--memory-only` in place of `--config-file` the server has no
+configuration file. It starts with no domains and no hosts, keeps
+everything in memory and saves nothing, so a restart starts from empty
+again. This suits a server whose contents are set up by another program
+every time it starts, for example with [`tr-ddns-ctl`](ctl.md) from the
+startup of a container.
+
 ## Life cycle
 
 1. `tr-ddns -c FILE --init-config-file` creates an empty file. It fails

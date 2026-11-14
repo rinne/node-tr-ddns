@@ -13,6 +13,7 @@ Options:
             --log-level=<arg>                Log level: none, error, warn, info or debug
   -c <arg>  --config-file=<arg>              Configuration file
             --init-config-file               Initialize configuration file and exit
+            --memory-only                    Run without configuration file: start empty and save nothing
             --config-write-interval=<arg>    Shortest time in seconds between writes of configuration file
             --udp                            Enable UDP server
             --udp-listen-address=<arg>       Listen address(es) for UDP server, comma separated
@@ -44,8 +45,9 @@ switched on with value true.
 
 | Option | Meaning | Default |
 | --- | --- | --- |
-| `-c <file>`, `--config-file=<file>` | The file that holds the domains and hosts. Required. See [config-file.md](config-file.md). | |
+| `-c <file>`, `--config-file=<file>` | The file that holds the domains and hosts. Required unless `--memory-only` is given. See [config-file.md](config-file.md). | |
 | `--init-config-file` | Create an empty configuration file and exit. Fails if the file exists. | |
+| `--memory-only` | Run without a configuration file: start with no domains and hosts, and save nothing. Everything is lost when the program stops. Cannot be combined with `--config-file`. | |
 | `--config-write-interval=<seconds>` | The shortest time between two writes of the configuration file, 0 to 86400. Changes made sooner are written together when the time is up. | 10 |
 | `--log-level=<level>` | `none`, `error`, `warn`, `info` or `debug`. | `info` |
 | `--debug` | The same as `--log-level=debug`. | |
@@ -124,6 +126,7 @@ environment.
 | `TR_DDNS_OPT_DEBUG` | `--debug` |
 | `TR_DDNS_OPT_LOG_LEVEL` | `--log-level` |
 | `TR_DDNS_OPT_CONFIG_WRITE_INTERVAL` | `--config-write-interval` |
+| `TR_DDNS_OPT_MEMORY_ONLY` | `--memory-only` |
 | `TR_DDNS_OPT_UDP` | `--udp` |
 | `TR_DDNS_OPT_UDP_LISTEN_ADDRESS` | `--udp-listen-address` |
 | `TR_DDNS_OPT_UDP_LISTEN_PORT` | `--udp-listen-port` |
@@ -143,7 +146,8 @@ environment.
 
 ## Starting and stopping
 
-The configuration file must exist. Create it once:
+With `--memory-only` there is nothing to prepare. Otherwise the
+configuration file must exist. Create it once:
 
 ```
 tr-ddns -c /var/lib/tr-ddns/config.json --init-config-file

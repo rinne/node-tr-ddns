@@ -43,10 +43,14 @@ function commandLineOptsParse() {
 				[ { longName: 'config-file',
 					shortName: 'c',
 					description: 'Configuration file',
-					required: true,
 					hasArg: true },
 				  { longName: 'init-config-file',
-					description: 'Initialize configuration file and exit' },
+					description: 'Initialize configuration file and exit',
+					requiresAlso: [ 'config-file' ] },
+				  { longName: 'memory-only',
+					description: 'Run without configuration file: start empty and save nothing',
+					environment: 'TR_DDNS_OPT_MEMORY_ONLY',
+					conflictsWith: [ 'config-file', 'init-config-file' ] },
 				  { longName: 'config-write-interval',
 					description: 'Shortest time in seconds between writes of configuration file',
 					hasArg: true,
@@ -174,18 +178,10 @@ function basicAuthCookie(opt) {
 	return user ? Buffer.from(user + ':' + password).toString('base64') : null;
 }
 
-(async function() {
-	const opt = commandLineOptsParse();
-	// --debug is the same as --log-level=debug.
-	const debug = (opt.value('debug') || (opt.value('log-level') === 'debug')) ? true : false;
-	log.setLevel(debug ? 'debug' : opt.value('log-level'));
-	const basicAuth = basicAuthCookie(opt);
-
-	const db = new NameDB({ debug: debug });
-	const store = new ConfigStore({ file: opt.value('config-file'),
-									nameDB: db,
-									writeIntervalMs: opt.value('config-write-interval') * 1000 });
-
+// Reads the configuration file into the database and starts keeping
+// the file up to date. With --init-config-file creates the file and
+// ends the program instead.
+async function startStore(store, opt) {
 	if (opt.value('init-config-file')) {
 		try {
 			await store.init();
@@ -222,6 +218,30 @@ function basicAuthCookie(opt) {
 	store.on('write', function() { log('Config written'); });
 	store.on('error', function(e) { fatal('Unable to save current configuration (' + (e?.code ?? '?') + ')'); });
 	store.watch();
+}
+
+(async function() {
+	const opt = commandLineOptsParse();
+	// --debug is the same as --log-level=debug.
+	const debug = (opt.value('debug') || (opt.value('log-level') === 'debug')) ? true : false;
+	log.setLevel(debug ? 'debug' : opt.value('log-level'));
+	const basicAuth = basicAuthCookie(opt);
+
+	if (! (opt.value('config-file') || opt.value('memory-only'))) {
+		fatal('Either --config-file or --memory-only must be given');
+	}
+
+	const db = new NameDB({ debug: debug });
+	// Without a configuration file everything lives in memory only.
+	const store = (opt.value('memory-only') ?
+				   undefined :
+				   new ConfigStore({ file: opt.value('config-file'),
+									 nameDB: db,
+									 writeIntervalMs: opt.value('config-write-interval') * 1000 }));
+
+	if (store) {
+		await startStore(store, opt);
+	}
 
 	if (debug) {
 		for (let event of [ 'add', 'update', 'remove', 'flush', 'removedomain', 'adddomain', 'updatedomain' ]) {
@@ -292,13 +312,15 @@ function basicAuthCookie(opt) {
 		setTimeout(function() { process.exit(1); }, 5000).unref();
 		(async function() {
 			let code = 0;
-			try {
-				await store.flush();
-			} catch (e) {
-				console.error('Unable to save current configuration (' + (e?.code ?? '?') + ')');
-				code = 1;
+			if (store) {
+				try {
+					await store.flush();
+				} catch (e) {
+					console.error('Unable to save current configuration (' + (e?.code ?? '?') + ')');
+					code = 1;
+				}
+				store.close();
 			}
-			store.close();
 			await Promise.allSettled([ api, control, server ].map((x) => (x ? x.close() : undefined)));
 			db.close();
 			process.exit(code);

@@ -11,6 +11,9 @@ Every version published to npm, newest first.
   file (`--control-socket-mode`, 600 by default). It works without
   `--http-api`.
 
+- `--memory-only` runs the server without a configuration file: it
+  starts empty and saves nothing. `--config-file` is required only
+  without it.
 - `tr-ddns-ctl`, a second command in the package, manages a running
   server through the control socket: domains, hosts, single records,
   dump, stats and flush, with an exit status that scripts can use and a

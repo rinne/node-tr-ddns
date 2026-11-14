@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const { TYPE, runCli, startCli, tmpDir, freePort, freeTcpPort, apiCall, dnsQuery, waitFor } = require('./helpers');
+const { TYPE, LAUNCHER, runCli, startCli, tmpDir, freePort, freeTcpPort, apiCall, dnsQuery, waitFor } = require('./helpers');
 
 function readJson(fn) {
 	return JSON.parse(fs.readFileSync(fn, 'utf8'));
@@ -43,6 +43,14 @@ describe('command line', function() {
 						'--http-api-listen-address', '--http-api-listen-port', '--help' ]) {
 			assert.ok((r.stdout + r.stderr).includes(o), o);
 		}
+	});
+
+	test('the launcher at the old path runs the same program', async function() {
+		let r = await runCli([ '--help' ], { cli: LAUNCHER });
+		let ref = await runCli([ '--help' ]);
+		assert.equal(r.code, 0);
+		assert.equal(r.stdout, ref.stdout);
+		assert.match(r.stdout, /tr-ddns \[<opt> \.\.\.\]/);
 	});
 
 	test('the configuration file option is required', async function() {

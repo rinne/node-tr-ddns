@@ -15,8 +15,9 @@ const { once } = require('node:events');
 const { Packet } = require('dns2');
 
 const ROOT = path.resolve(__dirname, '..');
-const LIB = ROOT;
-const CLI = path.join(ROOT, 'tr-ddns');
+const LIB = path.join(ROOT, 'lib');
+const CLI = path.join(ROOT, 'bin', 'tr-ddns');
+const LAUNCHER = path.join(ROOT, 'tr-ddns');
 
 const lib = require(path.join(LIB, 'index.js'));
 
@@ -305,7 +306,7 @@ async function waitFor(fn, timeoutMs) {
 }
 
 module.exports = {
-	ROOT, LIB, CLI, lib, Packet, TYPE, RCODE,
+	ROOT, LIB, CLI, LAUNCHER, lib, Packet, TYPE, RCODE,
 	freePort, freeTcpPort, freeUdpPort,
 	buildQuery, udpExchange, tcpExchange, dnsQuery,
 	apiCall, captureConsole, startStack, tmpDir, runCli, startCli, waitFor

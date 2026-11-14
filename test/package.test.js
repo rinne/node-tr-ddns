@@ -18,6 +18,7 @@ const PUBLISHED = [
 	'MIT-RINNE',
 	'README.md',
 	'bin/tr-ddns',
+	'bin/tr-ddns-ctl',
 	'lib/api.js',
 	'lib/apiserver.js',
 	'lib/controlserver.js',
@@ -105,8 +106,8 @@ describe('npm package', function() {
 	});
 
 	test('declares the command', function() {
-		assert.deepEqual(pkg.bin, { 'tr-ddns': 'bin/tr-ddns' });
-		for (let f of [ 'bin/tr-ddns', 'tr-ddns' ]) {
+		assert.deepEqual(pkg.bin, { 'tr-ddns': 'bin/tr-ddns', 'tr-ddns-ctl': 'bin/tr-ddns-ctl' });
+		for (let f of [ 'bin/tr-ddns', 'bin/tr-ddns-ctl', 'tr-ddns' ]) {
 			let st = fs.statSync(path.join(ROOT, f));
 			assert.ok((st.mode & 0o111) !== 0, f + ' is executable');
 			assert.match(fs.readFileSync(path.join(ROOT, f), 'utf8'), /^#! ?\/usr\/bin\/env node\n/);

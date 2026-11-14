@@ -94,7 +94,8 @@ The control socket is the API of [api.md](api.md) without a network port
 and without authentication: whoever may open the socket file may do
 everything. It does not need `--http-api`, and when nothing but DNS
 should be reachable from outside, it is the way to manage the server.
-Any HTTP client that can use a Unix socket works with it:
+[`tr-ddns-ctl`](ctl.md) talks to it, and so does any HTTP client that
+can use a Unix socket:
 
 ```
 curl --unix-socket /run/tr-ddns/control.sock 'http://localhost/stats'

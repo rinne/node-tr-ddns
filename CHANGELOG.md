@@ -11,6 +11,18 @@ Every version published to npm, newest first.
   file (`--control-socket-mode`, 600 by default). It works without
   `--http-api`.
 
+- `tr-ddns-ctl`, a second command in the package, manages a running
+  server through the control socket: domains, hosts, single records,
+  dump, stats and flush, with an exit status that scripts can use and a
+  `wait` command for startup scripts.
+
+### API
+
+- `ensure=true` makes two calls repeatable: `/domain` then adds the
+  domain only if it is not served and otherwise applies the settings
+  given, and `/host` with `remove=true` succeeds also when there is no
+  such host.
+
 ### Library
 
 - `ControlServer`: the API on a Unix domain socket.

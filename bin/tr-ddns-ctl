@@ -1,0 +1,346 @@
+#! /usr/bin/env node
+'use strict';
+
+// Sends commands to a running tr-ddns through its control socket.
+
+const http = require('node:http');
+
+const EXIT_OK = 0;
+const EXIT_REFUSED = 1;
+const EXIT_USAGE = 2;
+const EXIT_UNREACHABLE = 3;
+
+const RECORD_TYPES = [ 'a', 'aaaa', 'txt', 'mx', 'cname', 'ns', 'srv', 'caa' ];
+const DOMAIN_SETTINGS = [ 'ns', 'admin', 'ttl', 'refresh', 'retry', 'expiration', 'minimum' ];
+
+const COMMANDS = [
+	'Commands:',
+	'  wait                                    Wait until the server answers',
+	'  info                                    Show the name and version of the server',
+	'  domain list                             List the served domains',
+	'  domain show <domain>                    Show a domain and its settings',
+	'  domain add <domain> [<setting>=<value> ...]',
+	'                                          Start serving a domain',
+	'  domain ensure <domain> [<setting>=<value> ...]',
+	'                                          The same, but fine if it is served already',
+	'  domain set <domain> <setting>=<value> ...',
+	'                                          Change settings of a served domain',
+	'  domain remove <domain>                  Stop serving a domain and remove its hosts',
+	'  host list [<domain>]                    List the hosts',
+	'  host show <host>                        Show the records of a host',
+	'  host set <host> <type>=<value> ... [ttl=<seconds>]',
+	'                                          Set the records of a host, replacing the old ones',
+	'  host merge <host> <type>=<value> ... [ttl=<seconds>]',
+	'                                          Set records of a host, keeping the other types',
+	'  host remove <host>                      Remove a host',
+	'  record add <host> <type> <value>        Add a value to the records of a type',
+	'  record set <host> <type> <value>        Replace the records of a type with a value',
+	'  record remove <host> <type> <value>     Remove a value',
+	'  record clear <host> <type>              Remove all records of a type',
+	'  dump                                    Print all domains and hosts as JSON',
+	'  stats                                   Print the counters as JSON',
+	'  flush                                   Remove ALL hosts AND domains; needs --yes',
+	'Settings: ' + DOMAIN_SETTINGS.join(', ') + '. Types: ' + RECORD_TYPES.join(', ') + '.',
+	'A setting or a type can be repeated to give it several values, and an',
+	'empty value resets a setting or, with merge, removes the records of a type.',
+	'Exit status: 0 done, 1 refused by the server, 2 invalid command line,',
+	'3 no answer from the server.'
+].join('\n');
+
+function commandLineOptsParse() {
+	const ou = require('optist/util');
+	return ((new (require('optist')))
+			.opts([ { longName: 'socket',
+					  shortName: 's',
+					  description: 'Control socket of the server',
+					  hasArg: true,
+					  optArgCb: ((x) => ((x === '') ? undefined : x)),
+					  environment: 'TR_DDNS_OPT_CONTROL_SOCKET' },
+					{ longName: 'timeout',
+					  description: 'Seconds to wait for the server',
+					  hasArg: true,
+					  optArgCb: ou.integerWithLimitsCbFactory(1, 86400),
+					  environment: 'TR_DDNS_OPT_CTL_TIMEOUT',
+					  defaultValue: '10' },
+					{ longName: 'json',
+					  description: 'Print the response of the server as JSON' },
+					{ longName: 'if-exists',
+					  description: 'With host remove: not an error if there is no such host' },
+					{ longName: 'yes',
+					  description: 'Confirm flush' } ])
+			.help('tr-ddns-ctl')
+			.helpMessageTail(COMMANDS)
+			.parse());
+}
+
+class Usage extends Error {}
+
+// One call to the server. Resolves to { status, body }, rejects when
+// the server cannot be reached or does not answer in time.
+function call(socket, timeoutMs, path, params) {
+	return new Promise(function(resolve, reject) {
+		let data = JSON.stringify(params ?? {});
+		let req = http.request({ socketPath: socket,
+								 path: path,
+								 method: 'POST',
+								 headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(data) } },
+							   function(res) {
+								   let chunks = [];
+								   res.on('data', function(d) { chunks.push(d); });
+								   res.on('end', function() {
+									   let body;
+									   try {
+										   body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+									   } catch (e) {
+										   body = undefined;
+									   }
+									   if (! (body && (typeof(body) === 'object') && (body.code === res.statusCode))) {
+										   reject(new Error('What answers on the socket is not tr-ddns'));
+										   return;
+									   }
+									   resolve({ status: res.statusCode, body: body });
+								   });
+								   res.on('error', reject);
+							   });
+		req.setTimeout(timeoutMs, function() { req.destroy(new Error('The server did not answer in time')); });
+		req.on('error', reject);
+		req.end(data);
+	});
+}
+
+// Arguments of the form name=value as parameters of a call. A name
+// that is repeated gets an array of its values.
+function pairs(args, allowed, what) {
+	let params = {};
+	for (let a of args) {
+		let i = a.indexOf('=');
+		let name = (i < 0) ? a : a.slice(0, i);
+		if ((i < 1) || (! allowed.includes(name))) {
+			throw new Usage('Expected ' + what + '=<value>, got ' + a);
+		}
+		let value = a.slice(i + 1);
+		if (! Object.hasOwn(params, name)) {
+			params[name] = value;
+		} else if (Array.isArray(params[name])) {
+			params[name].push(value);
+		} else {
+			params[name] = [ params[name], value ];
+		}
+	}
+	return params;
+}
+
+function argCount(args, min, max, usage) {
+	if ((args.length < min) || (args.length > max)) {
+		throw new Usage('Usage: tr-ddns-ctl ' + usage);
+	}
+}
+
+// Turns a command into what to ask from the server and how to show
+// the answer. Returns { path, params, show }, where show gets the
+// data of the response and returns the lines to print, or throws a
+// string to say that what was asked for does not exist.
+function plan(args, opt) {
+	let command = args[0];
+	let sub = args[1];
+	let rest = args.slice(2);
+	let nothing = function() { return []; };
+	let json = function(data) { return [ JSON.stringify(data, null, 2) ]; };
+	switch (command) {
+	case 'info':
+		argCount(args, 1, 1, 'info');
+		return { path: '/', show: (d) => [ d.package + ' ' + d.version ] };
+	case 'dump':
+		argCount(args, 1, 1, 'dump');
+		return { path: '/dump', show: json };
+	case 'stats':
+		argCount(args, 1, 1, 'stats');
+		return { path: '/stats', show: json };
+	case 'flush':
+		argCount(args, 1, 1, 'flush');
+		if (! opt.value('yes')) {
+			throw new Usage('flush removes all hosts and domains. Give --yes to do it.');
+		}
+		return { path: '/flush', show: nothing };
+	case 'domain':
+		switch (sub) {
+		case 'list':
+			argCount(rest, 0, 0, 'domain list');
+			return { path: '/dump', show: (d) => d.domains.map((x) => x.name).sort() };
+		case 'show':
+			argCount(rest, 1, 1, 'domain show <domain>');
+			return { path: '/dump', show: function(d) {
+				let lc = rest[0].replace(/\.$/, '').toLowerCase();
+				let x = d.domains.find((y) => (y.lcname === lc));
+				if (! x) {
+					throw 'No such domain';
+				}
+				let lines = [ 'name ' + x.name, 'serial ' + x.serial ];
+				for (let k of DOMAIN_SETTINGS) {
+					for (let v of [].concat(x[k] ?? [])) {
+						lines.push(k + ' ' + v);
+					}
+				}
+				return lines;
+			} };
+		case 'add':
+		case 'ensure':
+		case 'set': {
+			argCount(rest, (sub === 'set') ? 2 : 1, Infinity, 'domain ' + sub + ' <domain> ' + ((sub === 'set') ? '<setting>=<value> ...' : '[<setting>=<value> ...]'));
+			let params = pairs(rest.slice(1), DOMAIN_SETTINGS, '<setting>');
+			params.domain = rest[0];
+			if (sub === 'ensure') {
+				params.ensure = true;
+			} else if (sub === 'set') {
+				params.update = true;
+			}
+			return { path: '/domain', params: params, show: nothing };
+		}
+		case 'remove':
+			argCount(rest, 1, 1, 'domain remove <domain>');
+			return { path: '/domain', params: { domain: rest[0], remove: true }, show: nothing };
+		}
+		throw new Usage('Usage: tr-ddns-ctl domain list|show|add|ensure|set|remove ...');
+	case 'host':
+		switch (sub) {
+		case 'list':
+			argCount(rest, 0, 1, 'host list [<domain>]');
+			return { path: '/dump', show: function(d) {
+				let lc = (rest[0] === undefined) ? undefined : rest[0].replace(/\.$/, '').toLowerCase();
+				if ((lc !== undefined) && (! d.domains.some((y) => (y.lcname === lc)))) {
+					throw 'No such domain';
+				}
+				return d.hosts.filter((h) => ((lc === undefined) || (h.domain === lc))).map((h) => h.name).sort();
+			} };
+		case 'show':
+			argCount(rest, 1, 1, 'host show <host>');
+			return { path: '/dump', show: function(d) {
+				let lc = rest[0].replace(/\.$/, '').toLowerCase();
+				let h = d.hosts.find((y) => (y.lcname === lc));
+				if (! h) {
+					throw 'No such host';
+				}
+				let lines = [];
+				for (let t of RECORD_TYPES) {
+					for (let v of (h.data[t] ?? [])) {
+						lines.push(t + ' ' + v);
+					}
+				}
+				if (Number.isFinite(h.expires)) {
+					lines.push('expires ' + (new Date(h.expires)).toISOString());
+				}
+				return lines;
+			} };
+		case 'set':
+		case 'merge': {
+			argCount(rest, 2, Infinity, 'host ' + sub + ' <host> <type>=<value> ... [ttl=<seconds>]');
+			let params = pairs(rest.slice(1), RECORD_TYPES.concat([ 'ttl' ]), '<type>');
+			if (! RECORD_TYPES.some((t) => Object.hasOwn(params, t))) {
+				// The server would take a call without records as a removal.
+				throw new Usage('host ' + sub + ' needs at least one <type>=<value>');
+			}
+			params.host = rest[0];
+			params.remove = false;
+			if (sub === 'merge') {
+				params.merge = true;
+			}
+			return { path: '/host', params: params, show: nothing };
+		}
+		case 'remove': {
+			argCount(rest, 1, 1, 'host remove <host>');
+			let params = { host: rest[0], remove: true };
+			if (opt.value('if-exists')) {
+				params.ensure = true;
+			}
+			return { path: '/host', params: params, show: nothing };
+		}
+		}
+		throw new Usage('Usage: tr-ddns-ctl host list|show|set|merge|remove ...');
+	case 'record':
+		switch (sub) {
+		case 'add':
+		case 'set':
+		case 'remove':
+			argCount(rest, 3, 3, 'record ' + sub + ' <host> <type> <value>');
+			return { path: '/record', params: { host: rest[0], type: rest[1], command: sub, value: rest[2] }, show: nothing };
+		case 'clear':
+			argCount(rest, 2, 2, 'record clear <host> <type>');
+			return { path: '/record', params: { host: rest[0], type: rest[1], command: 'clear' }, show: nothing };
+		}
+		throw new Usage('Usage: tr-ddns-ctl record add|set|remove|clear ...');
+	}
+	throw new Usage('Unknown command: ' + command);
+}
+
+// Asks the server until it answers or the time is up.
+async function wait(socket, timeoutMs) {
+	let end = Date.now() + timeoutMs;
+	while (true) {
+		try {
+			let r = await call(socket, Math.max(100, Math.min(1000, end - Date.now())), '/');
+			if (r.status === 200) {
+				return r;
+			}
+		} catch (e) {
+			/*NOTHING*/
+		}
+		if (Date.now() >= end) {
+			throw new Error('The server did not answer in time');
+		}
+		await new Promise(function(resolve) { setTimeout(resolve, 100); });
+	}
+}
+
+(async function() {
+	const opt = commandLineOptsParse();
+	const args = opt.rest();
+	const fail = function(code, message) {
+		console.error('tr-ddns-ctl: ' + message);
+		process.exit(code);
+	};
+	try {
+		if (args.length < 1) {
+			throw new Usage('No command given. See tr-ddns-ctl --help.');
+		}
+		let socket = opt.value('socket');
+		if (! socket) {
+			throw new Usage('No control socket given. Use --socket or TR_DDNS_OPT_CONTROL_SOCKET.');
+		}
+		let timeoutMs = opt.value('timeout') * 1000;
+		let p, r;
+		if (args[0] === 'wait') {
+			argCount(args, 1, 1, 'wait');
+			p = { show: function() { return []; } };
+			r = await wait(socket, timeoutMs);
+		} else {
+			p = plan(args, opt);
+			r = await call(socket, timeoutMs, p.path, p.params);
+		}
+		if (r.status !== 200) {
+			if (opt.value('json')) {
+				console.log(JSON.stringify(r.body));
+			}
+			fail(EXIT_REFUSED, r.body.message ?? ('Error ' + r.status));
+		}
+		let lines;
+		try {
+			lines = p.show(r.body.data);
+		} catch (e) {
+			if (typeof(e) !== 'string') {
+				throw e;
+			}
+			fail(EXIT_REFUSED, e);
+		}
+		if (opt.value('json')) {
+			console.log(JSON.stringify(r.body));
+		} else if (lines.length > 0) {
+			console.log(lines.join('\n'));
+		}
+		process.exit(EXIT_OK);
+	} catch (e) {
+		if (e instanceof Usage) {
+			fail(EXIT_USAGE, e.message);
+		}
+		fail(EXIT_UNREACHABLE, 'No answer from the server (' + (e?.code ?? e?.message ?? '?') + ')');
+	}
+})();

@@ -2,7 +2,9 @@
 
 The API is how domains and hosts are added, changed and removed. It is
 enabled with `--http-api`; see [cli.md](cli.md) for the listen address,
-the port and authentication.
+the port and authentication. The same API is served on a Unix domain
+socket with `--control-socket`, which is what
+[`tr-ddns-ctl`](ctl.md) uses.
 
 The examples below assume a server whose API listens on
 `127.0.0.1:8080`. They are run by the test suite, in the order they
@@ -86,6 +88,7 @@ Adds, changes or removes a served domain.
 | `domain` | The domain. Required. |
 | `remove` | `true` removes the domain and all of its hosts. |
 | `update` | `true` changes the settings of a domain that is already served. |
+| `ensure` | `true` adds the domain if it is not served; if it is, the call succeeds and applies the settings given. For callers that run more than once. |
 | `ns` | Setting: name servers of the domain. Repeat for several. The first one is the primary server in the SOA record. Default: the domain itself. |
 | `admin` | Setting: mail address of the administrator, as `user@example.com` or in the SOA form `user.example.com`. Default: `postmaster` at the domain. |
 | `ttl` | Setting: time to live of the records of the domain in seconds. Default: 60. |
@@ -104,6 +107,14 @@ domain is a parent or a subdomain of it.
 ```bash
 curl 'http://127.0.0.1:8080/domain?domain=example.com'  # 400: already served
 curl 'http://127.0.0.1:8080/domain?domain=sub.example.com'  # 400: inside a served domain
+```
+
+With `ensure=true` the call says what should be there, and can be
+repeated:
+
+```bash
+curl 'http://127.0.0.1:8080/domain?domain=example.net&ensure=true'
+curl 'http://127.0.0.1:8080/domain?domain=example.net&ensure=true&ttl=600'
 ```
 
 ### Change the settings
@@ -136,6 +147,7 @@ Sets all records of a host, or removes the host.
 | `ttl` | Lifetime of the host in seconds. When it has passed, the host and all of its records are removed. Without it the host stays until it is removed. This is not the DNS time to live, which is a setting of the domain. |
 | `merge` | `true` keeps the records that the call does not mention; see below. |
 | `remove` | `true` removes the host. |
+| `ensure` | With `remove=true`: `true` makes the call succeed also when there is no such host. |
 
 ### Record types
 
@@ -201,6 +213,7 @@ Removing a host that does not exist fails with 400.
 ```bash
 curl 'http://127.0.0.1:8080/host?host=alias.example.com'
 curl 'http://127.0.0.1:8080/host?host=alias.example.com&remove=true'  # 400: no such host
+curl 'http://127.0.0.1:8080/host?host=alias.example.com&remove=true&ensure=true'
 ```
 
 ## `/record`

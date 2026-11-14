@@ -123,6 +123,23 @@ describe('HTTP API', function() {
 			ok(await s.call('/domain', { domain: 'example.com', update: true }, { json: true }));
 		});
 
+		test('ensure=true adds a domain only if it is not served', async function() {
+			ok(await s.call('/domain', { domain: 'example.org', ensure: 'true', ttl: '300' }));
+			ok(await s.call('/domain', { domain: 'example.org', ensure: 'true' }));
+			assert.equal(s.db.getDomain('example.org').ttl, 300, 'a repeat without settings changes nothing');
+			ok(await s.call('/domain', { domain: 'example.org', ensure: true, minimum: 30 }, { json: true }));
+			let d = s.db.getDomain('example.org');
+			assert.deepEqual([ d.ttl, d.minimum ], [ 300, 30 ]);
+			let serial = s.db.getDomain('example.com').serial;
+			ok(await s.call('/domain', { domain: 'example.com', ensure: 'true' }));
+			assert.equal(s.db.getDomain('example.com').serial, serial);
+			bad(await s.call('/domain', { domain: 'sub.example.com', ensure: 'true' }), 'Bad request (unable to add domain)');
+			bad(await s.call('/domain', { domain: 'example.com', ensure: 'true', remove: 'true' }), 'Bad request (conflicting params)');
+			bad(await s.call('/domain', { domain: 'example.com', ensure: 'true', update: 'true' }), 'Bad request (conflicting params)');
+			bad(await s.call('/domain', { domain: 'example.com', ensure: 'maybe' }), 'Bad request (ensure)');
+			bad(await s.call('/domain', { domain: 'example.com', ensure: 'true', ttl: 'x' }), 'Bad request (ttl)');
+		});
+
 		test('rejects bad settings', async function() {
 			bad(await s.call('/domain', { domain: 'example.org', ns: 'not valid' }), 'Bad request (ns)');
 			bad(await s.call('/domain', { domain: 'example.org', ns: [ 'ns.example.net', 'x' ] }), 'Bad request (ns)');
@@ -205,6 +222,16 @@ describe('HTTP API', function() {
 			ok(await s.call('/host', { host: 'h.example.com', a: '1.2.3.4' }));
 			ok(await s.call('/host', { host: 'h.example.com', remove: 'true' }));
 			assert.equal(await host('h.example.com'), undefined);
+		});
+
+		test('ensure=true lets a removal succeed when there is no such host', async function() {
+			ok(await s.call('/host', { host: 'h.example.com', a: '1.2.3.4' }));
+			ok(await s.call('/host', { host: 'h.example.com', remove: 'true', ensure: 'true' }));
+			ok(await s.call('/host', { host: 'h.example.com', remove: 'true', ensure: 'true' }));
+			ok(await s.call('/host', { host: 'h.example.com', ensure: 'true' }), 'a call without records is a removal');
+			bad(await s.call('/host', { host: 'h.example.org', remove: 'true', ensure: 'true' }), 'Bad request (unable to remove host)');
+			bad(await s.call('/host', { host: 'h.example.com', a: '1.2.3.4', ensure: 'true' }), 'Bad request (conflicting params)');
+			bad(await s.call('/host', { host: 'h.example.com', remove: 'true', ensure: 'maybe' }), 'Bad request (ensure)');
 		});
 
 		test('a call without any record removes the host', async function() {

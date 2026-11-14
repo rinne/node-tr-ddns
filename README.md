@@ -137,6 +137,7 @@ Two things to keep in mind:
 
 - [Command line](https://github.com/rinne/node-tr-ddns/blob/main/docs/cli.md): options, environment variables, exit status, logging.
 - [HTTP API](https://github.com/rinne/node-tr-ddns/blob/main/docs/api.md): every call, parameter and response.
+- [tr-ddns-ctl](https://github.com/rinne/node-tr-ddns/blob/main/docs/ctl.md): managing a running server from the command line.
 - [DNS behaviour](https://github.com/rinne/node-tr-ddns/blob/main/docs/dns.md): what is answered and what is ignored, record types, SOA and NS, rate limiting.
 - [Configuration file](https://github.com/rinne/node-tr-ddns/blob/main/docs/config-file.md): format and how it is written.
 - [Deployment](https://github.com/rinne/node-tr-ddns/blob/main/docs/deployment.md): delegation, port 53, securing the API, running as a service.

@@ -5,7 +5,8 @@
 	"main": "lib/index.js",
 	"types": "lib/index.d.ts",
 	"bin": {
-		"tr-ddns": "bin/tr-ddns"
+		"tr-ddns": "bin/tr-ddns",
+		"tr-ddns-ctl": "bin/tr-ddns-ctl"
 	},
 	"exports": {
 		".": {

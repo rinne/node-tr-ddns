@@ -9,7 +9,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const { ROOT, TYPE, RCODE, startStack, runCli, tmpDir, freePort, freeTcpPort, dnsQuery } = require('./helpers');
+const { ROOT, lib, TYPE, RCODE, startStack, runCli, tmpDir, freePort, freeTcpPort, dnsQuery } = require('./helpers');
 
 const records = require('../lib/records');
 
@@ -135,10 +135,20 @@ async function runDig(line, dnsPort) {
 	}
 }
 
+async function runCtl(line, socket) {
+	let { tokens, comment } = shellSplit(line);
+	let r = await runCli(tokens.slice(1), { cli: path.join(ROOT, 'bin', 'tr-ddns-ctl'), env: { TR_DDNS_OPT_CONTROL_SOCKET: socket } });
+	let m = comment.match(/^exit (\d)\b/);
+	assert.equal(r.code, m ? Number.parseInt(m[1]) : 0, line + ' -> ' + r.stdout + r.stderr);
+}
+
 async function runExamples(file, setup) {
 	let lines = examples(file);
 	assert.ok(lines.length > 0, 'no examples in ' + file);
 	let s = await startStack();
+	let dir = tmpDir();
+	let socket = path.join(dir, 'control.sock');
+	let control = new lib.ControlServer({ nameDB: s.db, path: socket });
 	try {
 		if (setup) {
 			setup(s);
@@ -148,12 +158,16 @@ async function runExamples(file, setup) {
 				await runCurl(line, s.base);
 			} else if (line.startsWith('dig ')) {
 				await runDig(line, s.dnsPort);
+			} else if (line.startsWith('tr-ddns-ctl ')) {
+				await runCtl(line, socket);
 			} else {
 				assert.fail('example that the test cannot run in ' + file + ': ' + line);
 			}
 		}
 	} finally {
+		await control.close();
 		await s.close();
+		fs.rmSync(dir, { recursive: true, force: true });
 	}
 	return lines.length;
 }
@@ -187,6 +201,19 @@ describe('documentation', function() {
 
 	test('the examples of the API reference work', async function() {
 		assert.ok((await runExamples('docs/api.md')) >= 25);
+	});
+
+	test('the examples of the tr-ddns-ctl document work', async function() {
+		assert.ok((await runExamples('docs/ctl.md')) >= 25);
+	});
+
+	test('the tr-ddns-ctl document has what the command prints with --help', async function() {
+		let help = (await runCli([ '--help' ], { cli: path.join(ROOT, 'bin', 'tr-ddns-ctl') })).stdout.trimEnd();
+		assert.ok(read('docs/ctl.md').includes('```\n' + help + '\n```'));
+		let ctl = read('docs/ctl.md');
+		for (let m of help.matchAll(/--([a-z-]+)/g)) {
+			assert.ok(ctl.includes('`--' + m[1]) || (m[1] === 'help'), '--' + m[1]);
+		}
 	});
 
 	test('the examples of the DNS document work', async function() {

@@ -169,6 +169,40 @@ describe('ControlServer', function() {
 		}
 	});
 
+	test('the socket file has its permissions from the moment it appears', async function() {
+		try {
+			for (let mode of [ 0o600, 0o666 ]) {
+				let s = path.join(dir, 'early.sock');
+				let seen = new Set();
+				let watching = true;
+				// Looks at the file as often as the event loop allows while
+				// the server starts.
+				let look = function() {
+					try {
+						seen.add(fs.statSync(s).mode & 0o777);
+					} catch (e) {
+						/*NOTHING*/
+					}
+					if (watching) {
+						setImmediate(look);
+					}
+				};
+				look();
+				let c = new ControlServer({ nameDB: db, path: s, mode: mode });
+				try {
+					await once(c, 'ready');
+					look();
+				} finally {
+					watching = false;
+					await c.close();
+				}
+				assert.deepEqual([ ...seen ], [ mode ]);
+			}
+		} finally {
+			cleanup();
+		}
+	});
+
 	test('close removes the socket file', async function() {
 		try {
 			let s = path.join(dir, 'c.sock');

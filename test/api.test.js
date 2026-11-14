@@ -3,6 +3,8 @@
 const { test, describe, before, after, beforeEach } = require('node:test');
 const assert = require('node:assert/strict');
 
+const { once } = require('node:events');
+
 const { lib, startStack, captureConsole, freeTcpPort } = require('./helpers');
 
 const pkg = require('../package.json');
@@ -186,6 +188,34 @@ describe('HTTP API', function() {
 			assert.equal(s.db.stats().hosts, 0);
 		});
 
+		test('several values of a type can be given at once', async function() {
+			ok(await s.call('/host', { host: 'h.example.com', a: [ '1.2.3.4', '5.6.7.8' ], txt: [ 'one', 'two' ] }));
+			assert.deepEqual((await host('h.example.com')).data, { a: [ '1.2.3.4', '5.6.7.8' ], aaaa: [], txt: [ 'one', 'two' ], mx: [] });
+			ok(await s.call('/host', { host: 'j.example.com', aaaa: [ '2001:db8::1', '2001:db8::2' ] }, { json: true }));
+			assert.equal((await host('j.example.com')).data.aaaa.length, 2);
+			bad(await s.call('/host', { host: 'h.example.com', a: [ '1.2.3.4', 'bogus' ] }), 'Bad request (a)');
+			bad(await s.call('/host', { host: 'h.example.com', a: [] }, { json: true }), 'Bad request (a)');
+		});
+
+		test('values of the wrong shape are refused, not stored', async function() {
+			for (let v of [ { x: 1 }, 7, true, [ [ '1.2.3.4' ] ] ]) {
+				bad(await s.call('/host', { host: 'h.example.com', a: v }, { json: true }), 'Bad request (a)');
+			}
+			bad(await s.call('/host', { host: [ 'h.example.com', 'j.example.com' ], a: '1.2.3.4' }), 'Bad request (host)');
+			bad(await s.call('/host', { host: 'h.example.com', a: '1.2.3.4', ttl: [ '60', '70' ] }), 'Bad request (ttl)');
+			bad(await s.call('/host', { host: 'h.example.com', a: '1.2.3.4', ttl: true }, { json: true }), 'Bad request (ttl)');
+			bad(await s.call('/host', { host: 'h.example.com', a: '1.2.3.4', ttl: 0.0001 }, { json: true }), 'Bad request (ttl)');
+			bad(await s.call('/host', { host: 'h.example.com', a: '1.2.3.4', merge: [ 'true' ] }, { json: true }), 'Bad request (merge)');
+			bad(await s.call('/host', { host: 'h.example.com', txt: 'x'.repeat(5000) }, { json: true }), 'Bad request (txt)');
+			assert.equal(s.db.stats().hosts, 0);
+		});
+
+		test('a lifetime can be longer than 24 days', async function() {
+			ok(await s.call('/host', { host: 'h.example.com', a: '1.2.3.4', ttl: '31536000' }));
+			let h = await host('h.example.com');
+			assert.ok(Math.abs(h.expires - (Date.now() + 31536000000)) < 5000);
+		});
+
 		test('remove conflicts with mx as with the other records', async function() {
 			bad(await s.call('/host', { host: 'h.example.com', mx: 'mail.example.com', remove: 'true' }), 'Bad request (conflicting params)');
 		});
@@ -266,6 +296,9 @@ describe('HTTP API', function() {
 		test('/stats returns counters', async function() {
 			ok(await s.call('/host', { host: 'h.example.com', a: '1.2.3.4' }));
 			let d = ok(await s.call('/stats'));
+			assert.equal(d.authFailures, 0);
+			assert.deepEqual(Object.keys(d.dns).sort(), [ 'answered', 'dropped', 'empty', 'nxdomain', 'queries' ]);
+			assert.deepEqual(Object.keys(d.dns.dropped).sort(), [ 'error', 'invalid', 'notQuery', 'outOfZone', 'rateLimited' ]);
 			assert.equal(d.domains, 1);
 			assert.equal(d.hosts, 1);
 			assert.equal(typeof(d.lookup.total), 'number');
@@ -302,6 +335,17 @@ describe('HTTP API', function() {
 		test('a body that is not JSON or form encoded is refused', async function() {
 			bad(await s.call('/host', undefined, { method: 'POST', rawBody: 'hello', headers: { 'Content-Type': 'text/plain' } }));
 			bad(await s.call('/host', undefined, { method: 'POST', rawBody: '{not json', headers: { 'Content-Type': 'application/json' } }));
+		});
+
+		test('a request body over the size limit is refused', async function() {
+			let r = await s.call('/host', { host: 'h.example.com', txt: 'x'.repeat(70000) }, { json: true });
+			bad(r, undefined, 413);
+		});
+
+		test('a JSON body must be an object without dangerous keys', async function() {
+			bad(await s.call('/host', undefined, { method: 'POST', rawBody: '["h.example.com"]', headers: { 'Content-Type': 'application/json' } }));
+			bad(await s.call('/host', undefined, { method: 'POST', rawBody: '{"host":"h.example.com","a":"1.2.3.4","__proto__":{"x":1}}', headers: { 'Content-Type': 'application/json' } }));
+			assert.equal(s.db.stats().hosts, 0);
 		});
 
 		test('paths with empty or dot segments are refused', async function() {
@@ -344,6 +388,21 @@ describe('HTTP API with authentication', function() {
 		bad(await s.call('/flush', undefined, { auth: 'user:secre' }), 'Unauthorized', 401);
 	});
 
+	test('credentials are checked before the body is looked at', async function() {
+		let r = await s.call('/host', undefined, { method: 'POST', rawBody: '{not json', headers: { 'Content-Type': 'application/json' } });
+		bad(r, 'Unauthorized', 401);
+		r = await s.call('/host', undefined, { method: 'POST', rawBody: '{not json', headers: { 'Content-Type': 'application/json' }, auth: 'user:secret' });
+		bad(r, undefined, 400);
+	});
+
+	test('failed attempts are counted', async function() {
+		let before = (await s.call('/stats', undefined, { auth: 'user:secret' })).body.data.authFailures;
+		await s.call('/');
+		await s.call('/', undefined, { auth: 'user:nope' });
+		let after = (await s.call('/stats', undefined, { auth: 'user:secret' })).body.data.authFailures;
+		assert.equal(after - before, 2);
+	});
+
 	test('accepts the right credentials', async function() {
 		ok(await s.call('/', undefined, { auth: 'user:secret' }));
 		ok(await s.call('/domain', { domain: 'example.com' }, { auth: 'user:secret', json: true }));
@@ -364,19 +423,38 @@ describe('ApiServer', function() {
 		}
 	});
 
+	test('reports a port that is in use as an error event', async function() {
+		let db = new lib.NameDB();
+		let blocker = require('node:net').createServer();
+		await new Promise((r) => blocker.listen(0, '127.0.0.1', r));
+		let api = new lib.ApiServer({ nameDB: db, port: blocker.address().port, address: '127.0.0.1' });
+		try {
+			let [ e ] = await once(api, 'error');
+			assert.equal(e.code, 'EADDRINUSE');
+		} finally {
+			await api.close();
+			blocker.close();
+			db.close();
+		}
+	});
+
+	test('validates the options added later', function() {
+		let db = new lib.NameDB();
+		try {
+			assert.throws(() => new lib.ApiServer({ nameDB: db, port: 8080, basicAuth: '' }), /basic auth/);
+			assert.throws(() => new lib.ApiServer({ nameDB: db, port: 8080, maxBodySize: -1 }), /body size/);
+			assert.throws(() => new lib.ApiServer({ nameDB: db, port: 8080, nameServer: {} }), /NameServer/);
+		} finally {
+			db.close();
+		}
+	});
+
 	test('close stops the listener', async function() {
 		let db = new lib.NameDB();
 		let port = await freeTcpPort();
 		let api = new lib.ApiServer({ nameDB: db, port: port, address: '127.0.0.1' });
+		await once(api, 'ready');
 		let base = 'http://127.0.0.1:' + port + '/';
-		for (let i = 0; i < 100; i++) {
-			try {
-				await fetch(base);
-				break;
-			} catch (e) {
-				await new Promise((r) => setTimeout(r, 20));
-			}
-		}
 		await api.close();
 		await assert.rejects(fetch(base));
 		db.close();

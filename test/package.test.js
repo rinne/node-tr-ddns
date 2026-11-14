@@ -23,6 +23,8 @@ const PUBLISHED = [
 	'lib/namedb.js',
 	'lib/nameserver.js',
 	'lib/nullish.js',
+	'lib/records.js',
+	'lib/store.js',
 	'lib/ts.js',
 	'package.json',
 	'tr-ddns'
@@ -45,7 +47,7 @@ describe('npm package', function() {
 
 	test('the main entry exports the library', function() {
 		let m = require(ROOT);
-		assert.deepEqual(Object.keys(m).sort(), [ 'ApiServer', 'NameDB', 'NameServer', 'log', 'nullish', 'ts' ]);
+		assert.deepEqual(Object.keys(m).sort(), [ 'ApiServer', 'ConfigStore', 'NameDB', 'NameServer', 'log', 'nullish', 'ts' ]);
 		assert.equal(typeof(m.NameDB), 'function');
 		assert.equal(typeof(m.NameServer), 'function');
 		assert.equal(typeof(m.ApiServer), 'function');

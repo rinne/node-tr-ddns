@@ -1,22 +1,17 @@
 #! /usr/bin/env node
 'use strict';
 
-var opt = null;
-
-const fsp = require('fs').promises;
+const fs = require('node:fs');
 
 const ipaddr = require('ipaddr.js');
 
 const NameDB = require('../lib/namedb');
 const NameServer = require('../lib/nameserver');
 const ApiServer = require('../lib/apiserver');
-const nullish = require('../lib/nullish');
+const ConfigStore = require('../lib/store');
 const log = require('../lib/log');
 
-async function commandLineOptsParse() {
-	if (opt !== null) {
-		throw new Error('Options can only be parsed once');
-	}
+function commandLineOptsParse() {
 	function validIpAddrCb(s) {
 		if (! ipaddr.isValid(s)) {
 			return undefined;
@@ -24,257 +19,248 @@ async function commandLineOptsParse() {
 		return ipaddr.parse(s).toNormalizedString();
 	}
 	const ou = require('optist/util');
-	opt = ((new (require('optist')))
-		   .opts([].concat(
-		       [ { longName: 'debug',
-				   description: 'Enable debug messages',
-				   environment: 'TR_DDNS_OPT_DEBUG' } ],
-			   [ { longName: 'config-file',
-				   shortName: 'c',
-				   description: 'Configuration file',
-				   required: true,
-				   hasArg: true },
-				 { longName: 'init-config-file',
-				   description: 'Initialize configuration file and exit' } ],
-			   [ { longName: 'udp',
-				   description: 'Enable UDP server',
-				   environment: 'TR_DDNS_OPT_UDP' },
-				 { longName: 'udp-listen-address',
-				   description: 'Listen address for UDP server',
-				   hasArg: true,
-				   optArgCb: validIpAddrCb,
-				   environment: 'TR_DDNS_OPT_UDP_LISTEN_ADDRESS',
-				   defaultValue: '0.0.0.0' },
-				 { longName: 'udp-listen-port',
-				   description: 'Listen port for UDP server',
-				   hasArg: true,
-				   optArgCb: ou.integerWithLimitsCbFactory(1, 65535),
-				   environment: 'TR_DDNS_OPT_UDP_LISTEN_PORT',
-				   defaultValue: '53' },
-				 { longName: 'tcp',
-				   description: 'Enable TCP server',
-				   environment: 'TR_DDNS_OPT_TCP' },
-				 { longName: 'tcp-listen-address',
-				   description: 'Listen address for TCP server',
-				   optArgCb: validIpAddrCb,
-				   hasArg: true,
-				   defaultValue: '0.0.0.0',
-				   environment: 'TR_DDNS_OPT_TCP_LISTEN_ADDRESS' },
-				 { longName: 'tcp-listen-port',
-				   hasArg: true,
-				   optArgCb: ou.integerWithLimitsCbFactory(1, 65535),
-				   environment: 'TR_DDNS_OPT_TCP_LISTEN_PORT',
-				   defaultValue: '53',
-				   description: 'Listen port for TCP server' },
-				 { longName: 'http-api',
-				   description: 'Enable HTTP-API server',
-				   environment: 'TR_DDNS_OPT_HTTP_API' },
-				 { longName: 'http-api-user',
-				   description: 'Required username for HTTP API server',
-				   hasArg: true,
-				   optArgCb: ((x) => ((x === '') ? undefined : x)),
-				   environment: 'TR_DDNS_OPT_HTTP_API_USER',
-				   requiresAlso: [ 'http-api-password' ] },
-				 { longName: 'http-api-password',
-				   description: 'Required passwordname for HTTP API server',
-				   hasArg: true,
-				   optArgCb: ((x) => ((x === '') ? undefined : x)),
-				   environment: 'TR_DDNS_OPT_HTTP_API_PASSWORD',
-				   requiresAlso: [ 'http-api-user' ] },
-				 { longName: 'http-api-listen-address',
-				   description: 'Listen address for HTTP control server',
-				   hasArg: true,
-				   optArgCb: validIpAddrCb,
-				   environment: 'TR_DDNS_OPT_HTTP_API_LISTEN_ADDRESS',
-				   defaultValue: '0.0.0.0' },
-				 { longName: 'http-api-listen-port',
-				   description: 'Listen port for HTTP-API server',
-				   hasArg: true,
-				   optArgCb: ou.integerWithLimitsCbFactory(1, 65535),
-				   environment: 'TR_DDNS_OPT_HTTP_API_LISTEN_PORT',
-				   defaultValue: '80' } ] ))
-		.help('tr-ddns')
-		.parse(undefined, 0, 0));
+	return ((new (require('optist')))
+			.opts([].concat(
+				[ { longName: 'debug',
+					description: 'Enable debug messages',
+					environment: 'TR_DDNS_OPT_DEBUG' } ],
+				[ { longName: 'config-file',
+					shortName: 'c',
+					description: 'Configuration file',
+					required: true,
+					hasArg: true },
+				  { longName: 'init-config-file',
+					description: 'Initialize configuration file and exit' },
+				  { longName: 'config-write-interval',
+					description: 'Shortest time in seconds between writes of configuration file',
+					hasArg: true,
+					optArgCb: ou.integerWithLimitsCbFactory(0, 86400),
+					environment: 'TR_DDNS_OPT_CONFIG_WRITE_INTERVAL',
+					defaultValue: '10' } ],
+				[ { longName: 'udp',
+					description: 'Enable UDP server',
+					environment: 'TR_DDNS_OPT_UDP' },
+				  { longName: 'udp-listen-address',
+					description: 'Listen address for UDP server',
+					hasArg: true,
+					optArgCb: validIpAddrCb,
+					environment: 'TR_DDNS_OPT_UDP_LISTEN_ADDRESS',
+					defaultValue: '0.0.0.0' },
+				  { longName: 'udp-listen-port',
+					description: 'Listen port for UDP server',
+					hasArg: true,
+					optArgCb: ou.integerWithLimitsCbFactory(1, 65535),
+					environment: 'TR_DDNS_OPT_UDP_LISTEN_PORT',
+					defaultValue: '53' },
+				  { longName: 'tcp',
+					description: 'Enable TCP server',
+					environment: 'TR_DDNS_OPT_TCP' },
+				  { longName: 'tcp-listen-address',
+					description: 'Listen address for TCP server',
+					optArgCb: validIpAddrCb,
+					hasArg: true,
+					defaultValue: '0.0.0.0',
+					environment: 'TR_DDNS_OPT_TCP_LISTEN_ADDRESS' },
+				  { longName: 'tcp-listen-port',
+					hasArg: true,
+					optArgCb: ou.integerWithLimitsCbFactory(1, 65535),
+					environment: 'TR_DDNS_OPT_TCP_LISTEN_PORT',
+					defaultValue: '53',
+					description: 'Listen port for TCP server' },
+				  { longName: 'dns-rate-limit',
+					description: 'Queries per second answered to one source, 0 for no limit',
+					hasArg: true,
+					optArgCb: ou.integerWithLimitsCbFactory(0, 1000000),
+					environment: 'TR_DDNS_OPT_DNS_RATE_LIMIT',
+					defaultValue: NameServer.DEFAULT_RATE_LIMIT.toString() },
+				  { longName: 'http-api',
+					description: 'Enable HTTP-API server',
+					environment: 'TR_DDNS_OPT_HTTP_API' },
+				  { longName: 'http-api-user',
+					description: 'Required username for HTTP API server',
+					hasArg: true,
+					optArgCb: ((x) => ((x === '') ? undefined : x)),
+					environment: 'TR_DDNS_OPT_HTTP_API_USER' },
+				  { longName: 'http-api-password',
+					description: 'Required passwordname for HTTP API server',
+					hasArg: true,
+					optArgCb: ((x) => ((x === '') ? undefined : x)),
+					environment: 'TR_DDNS_OPT_HTTP_API_PASSWORD',
+					conflictsWith: [ 'http-api-password-file' ] },
+				  { longName: 'http-api-password-file',
+					description: 'File containing required password for HTTP API server',
+					hasArg: true,
+					optArgCb: ((x) => ((x === '') ? undefined : x)),
+					environment: 'TR_DDNS_OPT_HTTP_API_PASSWORD_FILE' },
+				  { longName: 'http-api-listen-address',
+					description: 'Listen address for HTTP control server',
+					hasArg: true,
+					optArgCb: validIpAddrCb,
+					environment: 'TR_DDNS_OPT_HTTP_API_LISTEN_ADDRESS',
+					defaultValue: '0.0.0.0' },
+				  { longName: 'http-api-listen-port',
+					description: 'Listen port for HTTP-API server',
+					hasArg: true,
+					optArgCb: ou.integerWithLimitsCbFactory(1, 65535),
+					environment: 'TR_DDNS_OPT_HTTP_API_LISTEN_PORT',
+					defaultValue: '80' } ] ))
+			.help('tr-ddns')
+			.helpMessageTail('Each option, except --config-file, --init-config-file and --help, can\n' +
+							 'also be given in environment variable TR_DDNS_OPT_<NAME>, where <NAME>\n' +
+							 'is the long option name in upper case with dashes as underscores, e.g.\n' +
+							 'TR_DDNS_OPT_UDP_LISTEN_PORT=5353. An option without an argument is\n' +
+							 'switched on with value true.')
+			.parse(undefined, 0, 0));
 }
 
-async function writeConfig(fn, config) {
-	await fsp.writeFile(fn, JSON.stringify(config, null, 2), { encoding: 'utf8', mode: 0o644, flag: 'w' });
+function fatal(message) {
+	console.error(message);
+	process.exit(1);
+}
+
+// The user name and password for the API as the base64 string of a
+// Basic authentication header, or null when authentication is not used.
+function basicAuthCookie(opt) {
+	let user = opt.value('http-api-user');
+	let password = opt.value('http-api-password');
+	let passwordFile = opt.value('http-api-password-file');
+	if (passwordFile) {
+		try {
+			// The password is the first line of the file.
+			password = fs.readFileSync(passwordFile, { encoding: 'utf8' }).split(/\r?\n/)[0];
+		} catch (e) {
+			fatal('Unable to read password file (' + (e.code ?? '?') + ')');
+		}
+		if (password === '') {
+			fatal('Password file is empty');
+		}
+	}
+	if (user && (! password)) {
+		fatal('Option --http-api-user requires also --http-api-password or --http-api-password-file');
+	}
+	if (password && (! user)) {
+		fatal('Options --http-api-password and --http-api-password-file require also --http-api-user');
+	}
+	return user ? Buffer.from(user + ':' + password).toString('base64') : null;
 }
 
 (async function() {
-	await commandLineOptsParse();
-	let cf;
-	try {
-		cf = await fsp.readFile(opt.value('config-file'), { encoding: 'utf8', flag: 'r' } );
-	} catch (e) {
-		if (e.code === 'ENOENT') {
-			cf = false;
-			if (! opt.value('init-config-file')) {
-				console.error('Configuration file not found (ENOENT). Use --init-config-file to create it.');
-				process.exit(1);
-			}
-		} else {
-			console.error('Unable to access configuration file (' + (e.code ?? '?') + ')');
-			process.exit(1);
-		}
-	}
+	const opt = commandLineOptsParse();
+	const debug = opt.value('debug');
+	const basicAuth = basicAuthCookie(opt);
 
-	const db = new NameDB({
-		debug: opt.value('debug')
-	});
-
-	const basicAuthCookie = opt.value('http-api-user') ? Buffer.from((opt.value('http-api-user') + ':' + opt.value('http-api-password'))).toString('base64') : null;
-
-	let config;
+	const db = new NameDB({ debug: debug });
+	const store = new ConfigStore({ file: opt.value('config-file'),
+									nameDB: db,
+									writeIntervalMs: opt.value('config-write-interval') * 1000 });
 
 	if (opt.value('init-config-file')) {
-		if (cf !== false) {
-			console.error('Unable to initialize configuration file (EEXIST)');
-			process.exit(1);
-		}
-		config = db.dump();
 		try {
-			await writeConfig(opt.value('config-file'), config);
+			await store.init();
 		} catch (e) {
-			console.error('Unable to initialize configuration file (' + (e.code ?? '?') + ')');
-			process.exit(1);
+			fatal('Unable to initialize configuration file (' + (e.code ?? '?') + ')');
 		}
 		process.exit(0);
-	} else {
-		try {
-			config = JSON.parse(cf);
-			if (! (Array.isArray(config?.domains) && Array.isArray(config?.hosts))) {
-				throw new Error('Invalid config');
-			}
-		} catch (e) {
-			console.error('Malformatted configuration');
-			process.exit(1);
-		}
 	}
-	for (let d of config.domains) {
-		try {
-			if (db.validDomain(d?.name)) {
-				db.addDomain(d.name);
-			} else {
-				console.warn('Ignored invalid domain entry (' + ((typeof(d?.name) === 'string') ? d.name : '?') + ') from configuration.');
-			}
-		} catch (e) {
-			console.warn('Ignored domain entry (' + d.name + ') that cannot be activated from configuration.');
-		}
-	}
-	for (let h of config.hosts) {
-		let now = Date.now();
-		try {
-			if (db.valid(h?.name)) {
-				let ttlMs;
-				if (Number.isFinite(h.expires)) {
-					if (h.expires <= now) {
-						continue;
-					}
-					ttlMs = h.expires - now;
-				} else {
-					ttlMs = undefined;
-				}
-				db.set(h?.name, h?.data, ttlMs);
-			} else {
-				console.warn('Ignored invalid host entry (' + ((typeof(h?.name) === 'string') ? h.name : '?') + ') from configuration.');
-			}
-		} catch (e) {
-			console.warn('Ignored invalid host entry (' + h.name + ') that cannot be activated from configuration.');
-		}
-	}
-	config = db.dump();
+
 	try {
-		await writeConfig(opt.value('config-file'), config);
+		for (let warning of (await store.load())) {
+			console.warn(warning);
+		}
 	} catch (e) {
-		console.error('Unable to update configuration file (' + (e.code ?? '?') + ')');
-		process.exit(1);
+		switch (e.code) {
+		case 'ENOENT':
+			fatal('Configuration file not found (ENOENT). Use --init-config-file to create it.');
+			break;
+		case 'EMALFORMED':
+			fatal('Malformatted configuration');
+			break;
+		default:
+			fatal('Unable to access configuration file (' + (e.code ?? '?') + ')');
+		}
+	}
+	try {
+		// The file is rewritten in the current format with the entries
+		// that could not be used left out.
+		await store.write({ untimed: true });
+	} catch (e) {
+		fatal('Unable to update configuration file (' + (e.code ?? '?') + ')');
 	}
 
-	{
-		let changeCb = function(event, name) {
-			if (opt.value('debug')) {
-				log('EVENT:', event + '(' + (name ? name : '') + ')');
-			}
-			(async function(db) { try { await writeConfigOrDie(db); } catch (e) {} })(db);
-		};
-		db.on('add', function(name) { changeCb('add', name); });
-		db.on('update', function(name) { changeCb('update', name); });
-		db.on('remove', function(name) { changeCb('remove', name); });
-		db.on('flush', function(name) { changeCb('flush'); });
-		db.on('removedomain', function(name) { changeCb('removedomain', name); });
-		db.on('adddomain', function(name) { changeCb('adddomain', name); });
-	}
+	store.on('write', function() { log('Config written'); });
+	store.on('error', function(e) { fatal('Unable to save current configuration (' + (e?.code ?? '?') + ')'); });
+	store.watch();
 
-	const api = (opt.value('http-api') ?
-				 new ApiServer({ nameDB: db,
-								 port: opt.value('http-api-listen-port'),
-								 address: opt.value('http-api-listen-address'),
-								 debug: opt.value('debug'),
-								 basicAuth: basicAuthCookie }) :
-				 undefined);
+	if (debug) {
+		for (let event of [ 'add', 'update', 'remove', 'flush', 'removedomain', 'adddomain' ]) {
+			db.on(event, function(name) { log('EVENT:', event + '(' + (name ? name : '') + ')'); });
+		}
+	}
 
 	const server = ((opt.value('udp') || opt.value('tcp')) ?
 					new NameServer({
-						debug: opt.value('debug'),
+						debug: debug,
 						tcp: opt.value('tcp'),
 						tcpListenPort: opt.value('tcp-listen-port'),
 						tcpListenAddress: opt.value('tcp-listen-address'),
 						udp: opt.value('udp'),
 						udpListenPort: opt.value('udp-listen-port'),
 						udpListenAddress: opt.value('udp-listen-address'),
+						rateLimit: opt.value('dns-rate-limit'),
 						nameDB: db
 					}) :
 					undefined);
 
 	// A listener that cannot be started is fatal.
 	if (server) {
-		server.on('error', function(e) {
-			console.error('Unable to start DNS server (' + (e?.code ?? '?') + ')');
-			process.exit(1);
-		});
+		server.on('error', function(e) { fatal('Unable to start DNS server (' + (e?.code ?? '?') + ')'); });
 	}
 
-})();
+	const api = (opt.value('http-api') ?
+				 new ApiServer({ nameDB: db,
+								 nameServer: server,
+								 port: opt.value('http-api-listen-port'),
+								 address: opt.value('http-api-listen-address'),
+								 debug: debug,
+								 basicAuth: basicAuth }) :
+				 undefined);
 
+	if (api) {
+		api.on('error', function(e) { fatal('Unable to start HTTP server (' + (e?.code ?? '?') + ')'); });
+		if ((basicAuth === null) && (ipaddr.parse(opt.value('http-api-listen-address')).range() !== 'loopback')) {
+			console.warn('Warning: HTTP API listens on ' + opt.value('http-api-listen-address') +
+						 ' without authentication. Anyone who can reach it can change and remove all records.');
+		}
+	}
 
-
-const writeConfigOrDie = (function() {
-	let writeConfigTs = 0;
-	let writeConfigTimeout = null;
-	return async function(db) {
-		if (! nullish(writeConfigTimeout)) {
-			if (opt.value('debug')) {
-				log('Config write deferred to a timeout set earlier');
-			}
+	// On a termination signal the pending changes are written to the
+	// configuration file before the program exits.
+	let stopping = false;
+	const stop = function(signal) {
+		if (stopping) {
 			return;
 		}
-		if ((Date.now() - writeConfigTs) < 10000) {
-			if (opt.value('debug')) {
-				log('Config write deferred');
+		stopping = true;
+		if (debug) {
+			log('Stopping on', signal);
+		}
+		// Whatever happens, the program does not hang around.
+		setTimeout(function() { process.exit(1); }, 5000).unref();
+		(async function() {
+			let code = 0;
+			try {
+				await store.flush();
+			} catch (e) {
+				console.error('Unable to save current configuration (' + (e?.code ?? '?') + ')');
+				code = 1;
 			}
-			writeConfigTimeout = setTimeout(function() { writeConfigTimeout = null;
-														 (async function() {
-															 try {
-																 await writeConfigOrDie(db);
-															 } catch(e) {
-																 if (opt.value('debug')) {
-																	 log(e);
-																 }
-															 }
-														 })();
-													   },
-											10000);
-			return;
-		}
-		let config = db.dump();
-		try {
-			writeConfigTs = Date.now();
-			await writeConfig(opt.value('config-file'), config);
-			log('Config written');
-		} catch (e) {
-			console.error('Unable to save current configuration (' + (e.code ?? '?') + ')');
-			process.exit(1);
-		}
+			store.close();
+			await Promise.allSettled([ api ? api.close() : undefined, server ? server.close() : undefined ]);
+			db.close();
+			process.exit(code);
+		})();
 	};
+	process.on('SIGTERM', function() { stop('SIGTERM'); });
+	process.on('SIGINT', function() { stop('SIGINT'); });
+
 })();

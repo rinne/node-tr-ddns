@@ -13,19 +13,54 @@ Options:
             --debug                          Enable debug messages
   -c <arg>  --config-file=<arg>              Configuration file
             --init-config-file               Initialize configuration file and exit
+            --config-write-interval=<arg>    Shortest time in seconds between writes of configuration file
             --udp                            Enable UDP server
             --udp-listen-address=<arg>       Listen address for UDP server
             --udp-listen-port=<arg>          Listen port for UDP server
             --tcp                            Enable TCP server
             --tcp-listen-address=<arg>       Listen address for TCP server
             --tcp-listen-port=<arg>          Listen port for TCP server
+            --dns-rate-limit=<arg>           Queries per second answered to one source, 0 for no limit
             --http-api                       Enable HTTP-API server
             --http-api-user=<arg>            Required username for HTTP API server
             --http-api-password=<arg>        Required passwordname for HTTP API server
+            --http-api-password-file=<arg>   File containing required password for HTTP API server
             --http-api-listen-address=<arg>  Listen address for HTTP control server
             --http-api-listen-port=<arg>     Listen port for HTTP-API server
   -h        --help                           Show help and exit
 ```
+
+Each option, except `--config-file`, `--init-config-file` and `--help`,
+can also be given in environment variable `TR_DDNS_OPT_<NAME>`, where
+`<NAME>` is the long option name in upper case with dashes as
+underscores, for example `TR_DDNS_OPT_UDP_LISTEN_PORT=5353`. An option
+without an argument is switched on with value `true`.
+
+### Configuration file
+
+All domains and hosts are kept in the configuration file, which the
+server reads at startup and rewrites when something changes. Changes
+that come in quick succession are written together: there is at least
+`--config-write-interval` seconds (10 by default) between two writes.
+The file is replaced in one step, so a crash cannot leave half a file
+behind. On SIGTERM and SIGINT the pending changes are written before the
+server exits.
+
+### Securing the API
+
+Without `--http-api-user`, anyone who can reach the API port can change
+and remove everything, and the default listen address is `0.0.0.0`. The
+server prints a warning at startup in that case. Either set a user and a
+password, or let the API listen on `127.0.0.1` only. A password given on
+the command line is visible in the process list;
+`--http-api-password-file` reads it from the first line of a file
+instead.
+
+### Rate limiting
+
+A single source address (a /64 prefix for IPv6) gets at most
+`--dns-rate-limit` queries answered per second, 500 by default. Queries
+over the limit are ignored. `--dns-rate-limit=0` removes the limit.
 
 ## API
 
@@ -35,12 +70,8 @@ method with JSON payload. Every response is JSON of the form
 `{ "status": "error", "code": 400, "message": "..." }`, and the HTTP
 status is the same as `code`.
 
-If `--http-api-user` and `--http-api-password` are given, every call
-needs HTTP Basic authentication (`curl -u user:password ...`).
-
-Every option can also be given in the environment as
-`TR_DDNS_OPT_<OPTION NAME>`, for example `TR_DDNS_OPT_UDP_LISTEN_PORT=5353`
-or `TR_DDNS_OPT_HTTP_API=true`.
+If `--http-api-user` and a password are given, every call needs HTTP
+Basic authentication (`curl -u user:password ...`).
 
 ### Add Domain
 
@@ -62,10 +93,13 @@ curl 'http://TR-DDNS-ADDR/domain?domain=test-domain.tld&remove=true'
 
 ### Add or Update Host
 
-Supported records are A, AAAA, MX, and TXT.
+Supported records are A, AAAA, MX, and TXT. A record parameter can be
+repeated (or be an array in a JSON payload) to set several values of the
+same type.
 
 ```
 curl 'http://TR-DDNS-ADDR/host?host=host1.test-domain.tld&a=1.2.3.4'
+curl 'http://TR-DDNS-ADDR/host?host=host1.test-domain.tld&a=1.2.3.4&a=5.6.7.8'
 curl 'http://TR-DDNS-ADDR/host?host=host2.test-domain.tld&a=1.2.3.4&aaaa=2001:db8::dead:beef&mx=my.mail.server.tld'
 curl 'http://TR-DDNS-ADDR/host?host=_sometext.test-domain.tld&txt=this-is-probably-some-dynamic-authorization'
 ```

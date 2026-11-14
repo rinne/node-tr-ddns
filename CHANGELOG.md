@@ -13,6 +13,27 @@ Work towards 2.0.0. Nothing in this section has been published.
   promise.
 - An allowlist of published files in `package.json`.
 - A lockfile and a CI workflow.
+- Rate limiting of DNS queries per source address (per /64 prefix for
+  IPv6): 500 queries per second by default, set with `--dns-rate-limit`
+  or the `rateLimit` option of `NameServer`, 0 for no limit. Queries over
+  the limit are ignored.
+- `--http-api-password-file` reads the API password from a file.
+- `--config-write-interval` sets the shortest time between two writes of
+  the configuration file.
+- On SIGTERM and SIGINT the pending changes are written to the
+  configuration file and the program exits with status 0.
+- A warning at startup when the API listens on an address other than
+  loopback without authentication.
+- `/host` accepts several values for a record type, as a repeated
+  parameter or a JSON array.
+- `/stats` reports `authFailures` and, under `dns`, counters of queries
+  received, answered and dropped by reason.
+- `ConfigStore`, exported from the library: loads a configuration file
+  into a `NameDB` and saves it on changes.
+- `NameServer.stats()`, `NameDB.lookup()`, `NameDB.getHostExpires()`, an
+  `options.serial` argument for `NameDB.addDomain()`, and `ready` and
+  `error` events on `ApiServer`.
+- The test suite enforces a coverage threshold.
 
 ### Changed
 
@@ -45,6 +66,27 @@ Work towards 2.0.0. Nothing in this section has been published.
 - A DNS listener that cannot be started makes `NameServer` emit `error`,
   and the program exits with status 1. The failure used to be silent.
 - A missing configuration file is reported as missing.
+- The configuration file is written to a temporary file that then
+  replaces the old one. Its permissions are kept, and a symbolic link
+  stays a link.
+- Every record value is validated and stored in a normal form, also when
+  it comes from the configuration file or as an array through the
+  library. An entry with an unusable value in the configuration file is
+  skipped with a warning. IPv4 addresses are stored as dotted quads and MX
+  hosts in lower case.
+- A TXT value is at most 4096 bytes, and a host has at most 100 values of
+  one type.
+- The lifetime of a host is no longer limited to about 24.8 days.
+- A host that expires advances the serial of its domain.
+- The serial of a domain is read from the configuration file and never
+  goes backwards over a restart.
+- API credentials are checked before the request body is parsed, and
+  compared in constant time.
+- A request body is at most 64 KiB, a JSON body must be an object, and
+  keys named `__proto__`, `constructor` or `prototype` are refused.
+- Queries that get no answer are logged only with `--debug`.
+- An HTTP listener that cannot be started makes `ApiServer` emit `error`.
+  The program still exits with status 1.
 
 ### Fixed
 

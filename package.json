@@ -33,7 +33,7 @@
 		"MIT-RINNE"
 	],
 	"scripts": {
-		"test": "node --test \"test/*.test.js\""
+		"test": "node --test --experimental-test-coverage --test-coverage-include=lib/** --test-coverage-include=bin/** --test-coverage-lines=90 --test-coverage-branches=85 --test-coverage-functions=90 \"test/*.test.js\""
 	},
 	"engines": {
 		"node": ">= 24.0.0"

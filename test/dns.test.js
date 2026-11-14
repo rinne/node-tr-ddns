@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const { once } = require('node:events');
 const dgram = require('node:dgram');
 
-const { lib, TYPE, RCODE, startStack, freePort, captureConsole } = require('./helpers');
+const { lib, TYPE, RCODE, startStack, startOfRatePeriod, freePort, captureConsole } = require('./helpers');
 
 describe('DNS server', function() {
 
@@ -150,10 +150,95 @@ describe('DNS server', function() {
 		assert.equal(r.answers.length, 2);
 	});
 
+	test('queries that get no answer are not logged', async function() {
+		let lines = await captureConsole(async function() {
+			await s.query('h.example.org', TYPE.A, { timeoutMs: 100 });
+			await s.query('nothing.example.com', TYPE.A);
+			await s.query('h.example.com', TYPE.A, { qr: 1, timeoutMs: 100 });
+		});
+		assert.deepEqual(lines, []);
+	});
+
+	test('counts queries by outcome', async function() {
+		let a = s.ns.stats();
+		await s.query('h.example.com', TYPE.A);
+		await s.query('nothing.example.com', TYPE.A);
+		await s.query('bad_name.x.example.com', TYPE.A);
+		await s.query('h.example.org', TYPE.A, { timeoutMs: 100 });
+		await s.query('h.example.com', TYPE.A, { qr: 1, timeoutMs: 100 });
+		await s.query('h.example.com', TYPE.A, { 'class': 3, timeoutMs: 100 });
+		let b = s.ns.stats();
+		assert.equal(b.queries - a.queries, 6);
+		assert.equal(b.answered - a.answered, 3);
+		assert.equal(b.empty - a.empty, 1);
+		assert.equal(b.nxdomain - a.nxdomain, 1);
+		assert.equal(b.dropped.outOfZone - a.dropped.outOfZone, 1);
+		assert.equal(b.dropped.notQuery - a.dropped.notQuery, 1);
+		assert.equal(b.dropped.invalid - a.dropped.invalid, 1);
+		assert.equal(b.dropped.rateLimited, 0);
+	});
+
 	test('lookups are counted', async function() {
 		let before = s.db.stats().lookup.total;
 		await s.query('h.example.com', TYPE.A);
 		assert.equal(s.db.stats().lookup.total, before + 1);
+	});
+
+});
+
+describe('DNS rate limiting', function() {
+
+	test('queries over the limit from one source are not answered', async function() {
+		let s = await startStack({ dns: { rateLimit: 5 } });
+		try {
+			s.db.addDomain('example.com');
+			s.db.set('h.example.com', { a: '1.2.3.4' });
+			await startOfRatePeriod((ms) => s.query('h.example.com', TYPE.A, { timeoutMs: ms }));
+			// One query of this second has been answered already.
+			let results = [];
+			for (let i = 0; i < 10; i++) {
+				results.push(await s.query('h.example.com', TYPE.A, { timeoutMs: 40, tcp: ((i % 2) === 1) }));
+			}
+			assert.deepEqual(results.map((r) => (r !== null)), [ true, true, true, true, false, false, false, false, false, false ]);
+			assert.ok(s.ns.stats().dropped.rateLimited >= 6);
+			await new Promise((r) => setTimeout(r, 1100));
+			assert.notEqual(await s.query('h.example.com', TYPE.A), null, 'answers again in the next second');
+		} finally {
+			await s.close();
+		}
+	});
+
+	test('the limit can be switched off', async function() {
+		let s = await startStack({ dns: { rateLimit: 0 } });
+		try {
+			s.db.addDomain('example.com');
+			s.db.set('h.example.com', { a: '1.2.3.4' });
+			let answered = 0;
+			for (let i = 0; i < 700; i++) {
+				if ((await s.query('h.example.com', TYPE.A)) !== null) {
+					answered++;
+				}
+			}
+			assert.equal(answered, 700);
+			assert.equal(s.ns.stats().dropped.rateLimited, 0);
+		} finally {
+			await s.close();
+		}
+	});
+
+	test('the default is a limit of 500 queries per second', function() {
+		assert.equal(lib.NameServer.DEFAULT_RATE_LIMIT, 500);
+	});
+
+	test('an invalid limit is refused', function() {
+		let db = new lib.NameDB();
+		try {
+			for (let bad of [ -1, 1.5, 'many', true ]) {
+				assert.throws(() => new lib.NameServer({ nameDB: db, udp: true, rateLimit: bad }), /rate limit/);
+			}
+		} finally {
+			db.close();
+		}
 	});
 
 });

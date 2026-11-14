@@ -203,7 +203,7 @@ async function startStack(opts) {
 												tcpListenAddress: '127.0.0.1' },
 											  opts?.dns));
 	await once(ns, 'ready');
-	let api = new lib.ApiServer(Object.assign({ nameDB: db, port: apiPort, address: '127.0.0.1' }, opts?.api));
+	let api = new lib.ApiServer(Object.assign({ nameDB: db, nameServer: ns, port: apiPort, address: '127.0.0.1' }, opts?.api));
 	let base = 'http://127.0.0.1:' + apiPort;
 	for (let i = 0; i < 100; i++) {
 		try {
@@ -223,6 +223,24 @@ async function startStack(opts) {
 			db.close();
 		}
 	};
+}
+
+// The rate limit counters of a name server are cleared once a second.
+// Uses up the current second and returns right after the first answer
+// of the next one, so that a burst sent after this falls within one
+// counting period. That first answer is counted in the new period.
+async function startOfRatePeriod(query) {
+	for (let i = 0; i < 2000; i++) {
+		if ((await query(40)) === null) {
+			break;
+		}
+	}
+	for (let i = 0; i < 200; i++) {
+		if ((await query(15)) !== null) {
+			return;
+		}
+	}
+	throw new Error('The rate limit never opened again');
 }
 
 function tmpDir() {
@@ -309,5 +327,5 @@ module.exports = {
 	ROOT, LIB, CLI, LAUNCHER, lib, Packet, TYPE, RCODE,
 	freePort, freeTcpPort, freeUdpPort,
 	buildQuery, udpExchange, tcpExchange, dnsQuery,
-	apiCall, captureConsole, startStack, tmpDir, runCli, startCli, waitFor
+	apiCall, captureConsole, startStack, startOfRatePeriod, tmpDir, runCli, startCli, waitFor
 };

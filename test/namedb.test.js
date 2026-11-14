@@ -149,6 +149,39 @@ describe('NameDB', function() {
 			assert.equal(db.stats().hosts, 0);
 		});
 
+		test('validates every value of an array or a set', function() {
+			assert.equal(db.set('h.example.com', { a: [ '1.1.1.1', 'bogus' ] }), false);
+			assert.equal(db.set('h.example.com', { aaaa: new Set([ '::1', 7 ]) }), false);
+			assert.equal(db.set('h.example.com', { txt: [ 'ok', '' ] }), false);
+			assert.equal(db.set('h.example.com', { mx: [ 'mail.example.com', 'not valid' ] }), false);
+			assert.equal(db.set('h.example.com', { txt: [ [ 'nested' ] ] }), false);
+			assert.equal(db.stats().hosts, 0);
+		});
+
+		test('stores values in a normal form', function() {
+			db.set('h.example.com', { a: [ '1.2.3.4', '001.002.003.004' ], aaaa: [ '2001:DB8::1', '2001:db8:0:0:0:0:0:1' ], mx: 'MAIL.Example.COM' });
+			assert.deepEqual(db.dump().hosts[0].data, { a: [ '1.2.3.4' ], aaaa: [ '2001:db8:0:0:0:0:0:1' ], txt: [], mx: [ 'mail.example.com' ] });
+		});
+
+		test('limits the size of a TXT value and the number of values', function() {
+			assert.equal(db.set('h.example.com', { txt: 'x'.repeat(4096) }), true);
+			assert.equal(db.set('h.example.com', { txt: 'x'.repeat(4097) }), false);
+			let many = [];
+			for (let i = 0; i < 101; i++) {
+				many.push('10.0.0.' + i);
+			}
+			assert.equal(db.set('h.example.com', { a: many.slice(0, 100) }), true);
+			assert.equal(db.set('h.example.com', { a: many }), false);
+			assert.equal(db.set('h.example.com', { a: '10.0.1.1' }, undefined, true), false, 'merge cannot exceed the limit either');
+		});
+
+		test('does not keep a reference to a set given by the caller', function() {
+			let mine = new Set([ '1.2.3.4' ]);
+			db.set('h.example.com', { a: mine });
+			mine.add('5.6.7.8');
+			assert.deepEqual(db.dump().hosts[0].data.a, [ '1.2.3.4' ]);
+		});
+
 		test('a host may sit at the apex of a domain', function() {
 			assert.equal(db.set('example.com', { a: '1.2.3.4' }), true);
 		});
@@ -239,6 +272,83 @@ describe('NameDB', function() {
 				d.close();
 				// The database of the enclosing suite was created with the
 				// real timers and must be closed with them.
+				t.mock.timers.reset();
+			}
+		});
+
+		test('hosts expire in order and each expiry advances the serial', function(t) {
+			t.mock.timers.enable({ apis: [ 'setTimeout', 'setInterval', 'Date' ] });
+			let d = new NameDB();
+			try {
+				let events = [];
+				d.on('remove', (n) => events.push(n));
+				d.addDomain('example.com');
+				d.set('c.example.com', { a: '1.2.3.4' }, 3000);
+				d.set('a.example.com', { a: '1.2.3.4' }, 1000);
+				d.set('b.example.com', { a: '1.2.3.4' }, 2000);
+				d.set('never.example.com', { a: '1.2.3.4' });
+				let serial = d.get('example.com', T.SOA)[0].serial;
+				t.mock.timers.tick(1000);
+				assert.deepEqual(events, [ 'a.example.com' ]);
+				assert.equal(d.get('example.com', T.SOA)[0].serial, serial + 1);
+				t.mock.timers.tick(1000);
+				assert.deepEqual(events, [ 'a.example.com', 'b.example.com' ]);
+				t.mock.timers.tick(1000);
+				assert.deepEqual(events, [ 'a.example.com', 'b.example.com', 'c.example.com' ]);
+				t.mock.timers.tick(10000000);
+				assert.equal(d.stats().hosts, 1);
+			} finally {
+				d.close();
+				t.mock.timers.reset();
+			}
+		});
+
+		test('a lifetime can be longer than the longest timer', function(t) {
+			t.mock.timers.enable({ apis: [ 'setTimeout', 'setInterval', 'Date' ] });
+			let d = new NameDB();
+			try {
+				let day = 86400000;
+				d.addDomain('example.com');
+				assert.equal(d.set('h.example.com', { a: '1.2.3.4' }, 40 * day), true);
+				t.mock.timers.tick(39 * day);
+				assert.equal(d.stats().hosts, 1);
+				t.mock.timers.tick(day);
+				assert.equal(d.stats().hosts, 0);
+			} finally {
+				d.close();
+				t.mock.timers.reset();
+			}
+		});
+
+		test('removing or replacing the next host to expire does not disturb the others', function(t) {
+			t.mock.timers.enable({ apis: [ 'setTimeout', 'setInterval', 'Date' ] });
+			let d = new NameDB();
+			try {
+				d.addDomain('example.com');
+				d.set('a.example.com', { a: '1.2.3.4' }, 1000);
+				d.set('b.example.com', { a: '1.2.3.4' }, 2000);
+				d.remove('a.example.com');
+				d.set('b.example.com', { a: '1.2.3.4' }, 5000);
+				t.mock.timers.tick(4999);
+				assert.equal(d.stats().hosts, 1);
+				t.mock.timers.tick(1);
+				assert.equal(d.stats().hosts, 0);
+			} finally {
+				d.close();
+				t.mock.timers.reset();
+			}
+		});
+
+		test('close stops expiry', function(t) {
+			t.mock.timers.enable({ apis: [ 'setTimeout', 'setInterval', 'Date' ] });
+			let d = new NameDB();
+			try {
+				d.addDomain('example.com');
+				d.set('a.example.com', { a: '1.2.3.4' }, 1000);
+				d.close();
+				t.mock.timers.tick(5000);
+				assert.equal(d.stats().hosts, 1);
+			} finally {
 				t.mock.timers.reset();
 			}
 		});
@@ -341,6 +451,20 @@ describe('NameDB', function() {
 			assert.equal(db.getHostExpires('nope.example.com'), undefined);
 			db.set('t.example.com', { a: '1.2.3.4' }, 60000);
 			assert.ok(db.getHostExpires('t.example.com') > Date.now());
+		});
+
+		test('a serial given to addDomain is continued, not restarted', function() {
+			let now = db.get('example.com', T.SOA)[0].serial;
+			db.addDomain('ahead.test', { serial: now + 100000 });
+			assert.equal(db.get('ahead.test', T.SOA)[0].serial, now + 100000);
+			// A serial that is behind the clock, or unusable, gives way
+			// to the time based one.
+			db.addDomain('fresh.test');
+			let fresh = db.get('fresh.test', T.SOA)[0].serial;
+			for (let [ name, serial ] of [ [ 'behind.test', 5 ], [ 'junk.test', 'x' ], [ 'zero.test', 0 ], [ 'huge.test', 4294967296 ] ]) {
+				db.addDomain(name, { serial: serial });
+				assert.ok(Math.abs(db.get(name, T.SOA)[0].serial - fresh) < 1000, name);
+			}
 		});
 
 		test('answers MX', function() {

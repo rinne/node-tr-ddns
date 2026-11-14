@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const { TYPE, LAUNCHER, runCli, startCli, tmpDir, freePort, freeTcpPort, apiCall, dnsQuery, waitFor } = require('./helpers');
+const { TYPE, LAUNCHER, startOfRatePeriod, runCli, startCli, tmpDir, freePort, freeTcpPort, apiCall, dnsQuery, waitFor } = require('./helpers');
 
 function readJson(fn) {
 	return JSON.parse(fs.readFileSync(fn, 'utf8'));
@@ -235,10 +235,119 @@ describe('server started from the command line', function() {
 		assert.match(r.stderr, /Unable to start DNS server \(EADDRINUSE\)/);
 	});
 
-	test('stops on SIGTERM', async function(t) {
-		let s = await startServer(t, { hosts: [], domains: [] });
-		await s.h.stop('SIGTERM');
-		assert.equal(s.h.exited, true);
+	test('exits when the HTTP listener cannot be started', async function(t) {
+		let dir = tmpDir();
+		let cf = path.join(dir, 'c.json');
+		fs.writeFileSync(cf, '{"hosts":[],"domains":[]}');
+		let blocker = require('node:net').createServer();
+		await new Promise((r) => blocker.listen(0, '127.0.0.1', r));
+		t.after(function() {
+			blocker.close();
+			fs.rmSync(dir, { recursive: true, force: true });
+		});
+		let r = await runCli([ '-c', cf, '--http-api', '--http-api-listen-address=127.0.0.1', '--http-api-listen-port=' + blocker.address().port ]);
+		assert.equal(r.code, 1);
+		assert.match(r.stderr, /Unable to start HTTP server \(EADDRINUSE\)/);
+	});
+
+	for (let signal of [ 'SIGTERM', 'SIGINT' ]) {
+		test('on ' + signal + ' writes pending changes and exits with 0', async function(t) {
+			let s = await startServer(t, { hosts: [], domains: [] }, [ '--config-write-interval=3600' ]);
+			assert.equal((await apiCall(s.base, '/domain', { domain: 'example.com' })).status, 200);
+			await waitFor(() => (readJson(s.cf).domains.length === 1));
+			assert.equal((await apiCall(s.base, '/host', { host: 'h.example.com', a: '1.2.3.4' })).status, 200);
+			await new Promise((r) => setTimeout(r, 100));
+			assert.equal(readJson(s.cf).hosts.length, 0, 'the second change waits for the write interval');
+			await s.h.stop(signal);
+			assert.equal(s.h.code, 0);
+			assert.equal(s.h.signal, null);
+			assert.equal(readJson(s.cf).hosts.length, 1);
+			assert.deepEqual(fs.readdirSync(s.dir), [ 'config.json' ]);
+		});
+	}
+
+	test('the write interval can be set to zero', async function(t) {
+		let s = await startServer(t, { hosts: [], domains: [] }, [ '--config-write-interval=0' ]);
+		for (let i = 0; i < 3; i++) {
+			assert.equal((await apiCall(s.base, '/domain', { domain: 'example' + i + '.com' })).status, 200);
+			await waitFor(() => (readJson(s.cf).domains.length === (i + 1)));
+		}
+	});
+
+	test('the password can be read from a file', async function(t) {
+		let dir = tmpDir();
+		t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+		let pf = path.join(dir, 'password');
+		fs.writeFileSync(pf, 'secret\n');
+		let s = await startServer(t, { hosts: [], domains: [] }, [ '--http-api-user=user', '--http-api-password-file=' + pf ]);
+		assert.equal((await apiCall(s.base, '/')).status, 401);
+		assert.equal((await apiCall(s.base, '/', undefined, { auth: 'user:secret' })).status, 200);
+		assert.equal((await apiCall(s.base, '/', undefined, { auth: 'user:secret\n' })).status, 401);
+	});
+
+	test('a password file that cannot be used stops the program', async function() {
+		let dir = tmpDir();
+		let cf = path.join(dir, 'c.json');
+		fs.writeFileSync(cf, '{"hosts":[],"domains":[]}');
+		fs.writeFileSync(path.join(dir, 'empty'), '');
+		fs.writeFileSync(path.join(dir, 'pw'), 'secret');
+		try {
+			let r = await runCli([ '-c', cf, '--http-api-user=u', '--http-api-password-file=' + path.join(dir, 'missing') ]);
+			assert.equal(r.code, 1);
+			assert.match(r.stderr, /password file \(ENOENT\)/);
+			r = await runCli([ '-c', cf, '--http-api-user=u', '--http-api-password-file=' + path.join(dir, 'empty') ]);
+			assert.equal(r.code, 1);
+			r = await runCli([ '-c', cf, '--http-api-password-file=' + path.join(dir, 'pw') ]);
+			assert.equal(r.code, 1);
+			r = await runCli([ '-c', cf, '--http-api-user=u', '--http-api-password=x', '--http-api-password-file=' + path.join(dir, 'pw') ]);
+			assert.notEqual(r.code, 0);
+		} finally {
+			fs.rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	test('warns when the API is reachable from other hosts without authentication', async function(t) {
+		let dir = tmpDir();
+		let cf = path.join(dir, 'c.json');
+		fs.writeFileSync(cf, '{"hosts":[],"domains":[]}');
+		t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+		let port = await freeTcpPort();
+		let open = await startCli([ '-c', cf, '--http-api', '--http-api-listen-port=' + port ], { waitUrl: 'http://127.0.0.1:' + port + '/' });
+		await open.stop();
+		assert.match(open.stderr, /Warning: HTTP API listens on 0\.0\.0\.0 without authentication/);
+		let secured = await startCli([ '-c', cf, '--http-api', '--http-api-listen-port=' + port, '--http-api-user=u', '--http-api-password=p' ],
+									 { waitUrl: 'http://127.0.0.1:' + port + '/' });
+		await secured.stop();
+		assert.doesNotMatch(secured.stderr, /Warning/);
+		let local = await startServer(t, { hosts: [], domains: [] });
+		await local.h.stop();
+		assert.doesNotMatch(local.h.stderr, /Warning/);
+	});
+
+	test('--dns-rate-limit limits the queries of one source', async function(t) {
+		let s = await startServer(t, { hosts: [], domains: [ { name: 'example.com' } ] }, [ '--dns-rate-limit=3' ]);
+		await startOfRatePeriod((ms) => dnsQuery(s.dnsPort, 'example.com', TYPE.SOA, { timeoutMs: ms }));
+		// One query of this second has been answered already.
+		let answered = 0;
+		for (let i = 0; i < 7; i++) {
+			if ((await dnsQuery(s.dnsPort, 'example.com', TYPE.SOA, { timeoutMs: 40 })) !== null) {
+				answered++;
+			}
+		}
+		assert.equal(answered, 2);
+		let d = (await apiCall(s.base, '/stats')).body.data;
+		assert.ok(d.dns.dropped.rateLimited >= 5);
+	});
+
+	test('entries with unusable values in the configuration file are skipped with a warning', async function(t) {
+		let s = await startServer(t, {
+			domains: [ { name: 'example.com' } ],
+			hosts: [ { name: 'good.example.com', data: { a: [ '1.2.3.4' ] } },
+					 { name: 'bad.example.com', data: { a: [ 'not an address' ] } } ]
+		});
+		let d = (await apiCall(s.base, '/dump')).body.data;
+		assert.deepEqual(d.hosts.map((h) => h.name), [ 'good.example.com' ]);
+		assert.match(s.h.stderr, /Ignored invalid host entry \(bad\.example\.com\)/);
 	});
 
 });

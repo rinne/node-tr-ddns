@@ -76,7 +76,7 @@ curl 'http://127.0.0.1:8080/'
 ```
 
 ```json
-{ "status": "ok", "code": 200, "data": { "package": "tr-ddns", "version": "2.0.0" } }
+{ "status": "ok", "code": 200, "data": { "package": "tr-ddns", "version": "3.0.0" } }
 ```
 
 ## `/domain`

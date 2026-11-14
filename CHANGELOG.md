@@ -2,7 +2,7 @@
 
 Every version published to npm, newest first.
 
-## 3.0.0 (unreleased)
+## 3.0.0 (2026-11-14)
 
 New ways to run the server: beside another product with only DNS
 exposed, managed through a control socket and `tr-ddns-ctl`; without a

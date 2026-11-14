@@ -36,7 +36,12 @@ describe('npm package', function() {
 
 	test('contains exactly the intended files', function() {
 		let out = execFileSync('npm', [ 'pack', '--dry-run', '--json', '--ignore-scripts' ], { cwd: ROOT, encoding: 'utf8', stdio: [ 'ignore', 'pipe', 'ignore' ] });
-		let files = JSON.parse(out)[0].files.map((f) => f.path).sort();
+		// The report is an array with one entry in some versions of npm
+		// and an object keyed by the package in others.
+		let report = JSON.parse(out);
+		let entry = [ report ].concat(Object.values(report ?? {})).find((x) => Array.isArray(x?.files));
+		assert.ok(entry, 'npm pack reported no file list: ' + out.slice(0, 200));
+		let files = entry.files.map((f) => f.path).sort();
 		assert.deepEqual(files, PUBLISHED.slice().sort());
 	});
 

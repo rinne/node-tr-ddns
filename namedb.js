@@ -13,14 +13,30 @@ class NameDB extends EventEmitter {
 	#domains;
 	#debug;
 	#stat;
-	
+	#serialTimer;
+
 	constructor(config) {
 		super();
 		this.#debug = config?.debug ? true : false;
 		this.#stat = { lookup: { total: 0, errors: 0 } };
 		this.#hosts = new Map();
 		this.#domains = new Map();
-		setInterval(function() { this.#updateSerials()}.bind(this), 3600000);
+		this.#serialTimer = setInterval(function() { this.#updateSerials()}.bind(this), 3600000);
+	}
+
+	// Stops all timers so that the process can exit. The contents of
+	// the database are left as they are.
+	close() {
+		if (this.#serialTimer) {
+			clearInterval(this.#serialTimer);
+			this.#serialTimer = null;
+		}
+		for (let n of this.#hosts.values()) {
+			if (n.timeout) {
+				clearTimeout(n.timeout);
+				n.timeout = null;
+			}
+		}
 	}
 
 	#serial() {

@@ -3,8 +3,21 @@
 	"version": "1.1.1",
 	"description": "Simple DDNS Server",
 	"main": "index.js",
+	"files": [
+		"index.js",
+		"namedb.js",
+		"nameserver.js",
+		"apiserver.js",
+		"log.js",
+		"nullish.js",
+		"ts.js",
+		"tr-ddns",
+		"README.MD",
+		"LICENSE",
+		"MIT-RINNE"
+	],
 	"scripts": {
-		"test": "node index.js"
+		"test": "node --test \"test/*.test.js\""
 	},
 	"engines": {
 		"node": ">= 18.0.0"

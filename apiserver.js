@@ -46,6 +46,21 @@ class ApiServer extends EventEmitter {
 		}
 	}
 
+	// Stops listening and drops open connections. Returns a promise
+	// that resolves when the server has closed.
+	close() {
+		let server = this.#server?.server;
+		if (! server) {
+			return Promise.resolve();
+		}
+		return new Promise(function(resolve) {
+			server.close(function() { resolve(); });
+			if (typeof(server.closeAllConnections) === 'function') {
+				server.closeAllConnections();
+			}
+		});
+	}
+
 	async #authCb(r) {
 		return true;
 	}

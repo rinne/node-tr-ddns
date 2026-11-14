@@ -123,7 +123,7 @@ class NameServer extends EventEmitter {
 					log('response: NONE <invalid-query>');
 				}
 				// If any of the questions is invalid, we don't answer at all.
-				return;
+				return this.#drop(rinfo);
 			}
 			let r = this.#db.get(q.name, q.type);
 			if (r === false) {
@@ -132,7 +132,7 @@ class NameServer extends EventEmitter {
 				// configuration error, hostile probing, or DNS
 				// applification attack anyways.
 				log('response: NONE <not-allowed> (' + q.name + ')');
-				return;
+				return this.#drop(rinfo);
 			}
 			if (nullish(r)) {
 				// We don't have data that was asked for, but the
@@ -148,12 +148,22 @@ class NameServer extends EventEmitter {
 		send(response);
 	}
 
+	// A query that gets no answer. Over TCP the connection is closed,
+	// because the server library keeps a connection open for as long
+	// as it has a query without a response.
+	#drop(rinfo) {
+		if (typeof(rinfo?.destroy) === 'function') {
+			rinfo.destroy();
+		}
+	}
+
+	// Returns a promise that resolves when the listeners have closed.
 	close() {
 		this.#closed = true;
 		if (! this.#server) {
-			return;
+			return Promise.resolve();
 		}
-		this.#server.close();
+		return Promise.resolve(this.#server.close()).then(function() { return undefined; });
 	}
 
 };

@@ -1,11 +1,11 @@
 'use strict';
 
-const { test, describe, before, after } = require('node:test');
+const { test, describe, before, after, beforeEach, afterEach } = require('node:test');
 const assert = require('node:assert/strict');
 const { once } = require('node:events');
 const dgram = require('node:dgram');
 
-const { lib, TYPE, RCODE, startStack, startOfRatePeriod, freePort, captureConsole, dnsQuery } = require('./helpers');
+const { lib, Packet, TYPE, RCODE, startStack, startOfRatePeriod, freePort, captureConsole, dnsQuery, buildQuery } = require('./helpers');
 
 describe('DNS server', function() {
 
@@ -442,6 +442,138 @@ describe('DNS rate limiting', function() {
 			}
 		} finally {
 			db.close();
+		}
+	});
+
+});
+
+describe('DnsCore', function() {
+
+	let db, core;
+
+	function query(name, type, opts) {
+		return Packet.parse(buildQuery(name, type, opts));
+	}
+
+	beforeEach(function() {
+		db = new lib.NameDB();
+		db.addDomain('example.com');
+		db.set('h.example.com', { a: '1.2.3.4' });
+		core = new lib.DnsCore({ nameDB: db });
+	});
+
+	afterEach(function() {
+		db.close();
+	});
+
+	test('answers a parsed query with a response packet', function() {
+		let r = core.answer(query('h.example.com', TYPE.A, { id: 4711 }), '192.0.2.1');
+		assert.equal(r.dropped, undefined);
+		let p = Packet.parse(r.response.toBuffer());
+		assert.deepEqual([ p.header.id, p.header.qr, p.header.aa, p.header.rcode ], [ 4711, 1, 1, RCODE.NOERROR ]);
+		assert.deepEqual(p.answers.map((a) => a.address), [ '1.2.3.4' ]);
+		assert.equal(Packet.parse(core.answer(query('nothing.example.com', TYPE.A)).response.toBuffer()).header.rcode, RCODE.NXDOMAIN);
+	});
+
+	test('tells why a query gets no answer', function() {
+		assert.deepEqual(core.answer(query('h.example.org', TYPE.A)), { dropped: 'outOfZone' });
+		assert.deepEqual(core.answer(query('h.example.com', TYPE.A, { qr: 1 })), { dropped: 'notQuery' });
+		assert.deepEqual(core.answer(query('h.example.com', TYPE.A, { opcode: 5 })), { dropped: 'notQuery' });
+		assert.deepEqual(core.answer(query('h.example.com', TYPE.A, { extraQuestions: [ { name: 'x.example.com', type: TYPE.A } ] })), { dropped: 'notQuery' });
+		assert.deepEqual(core.answer(query('h.example.com', TYPE.A, { 'class': 3 })), { dropped: 'invalid' });
+		for (let junk of [ undefined, null, {}, 'x', { header: {} }, { header: { qr: 0, opcode: 0 }, questions: [ null ] } ]) {
+			assert.ok([ 'notQuery', 'invalid' ].includes(core.answer(junk).dropped), JSON.stringify(junk));
+		}
+	});
+
+	test('a failure inside is a dropped query, not an exception', function() {
+		let broken = new lib.DnsCore({ nameDB: { get: () => [], lookup: () => { throw new Error('boom'); } } });
+		assert.deepEqual(broken.answer(query('h.example.com', TYPE.A)), { dropped: 'error' });
+		assert.equal(broken.stats().dropped.error, 1);
+	});
+
+	test('works with a database that only has get()', function() {
+		let old = new lib.DnsCore({ nameDB: { get: (name, type) => ((name === 'h.example.com') ? db.get(name, type) : false) } });
+		assert.equal(old.answer(query('h.example.com', TYPE.A)).response.answers.length, 1);
+		assert.deepEqual(old.answer(query('x.example.org', TYPE.A)), { dropped: 'outOfZone' });
+	});
+
+	test('refuses outside the served domains when configured or asked to', function() {
+		let r = core.answer(query('h.example.org', TYPE.A), undefined, { refuseOutOfZone: true });
+		assert.equal(r.response.header.rcode, RCODE.REFUSED);
+		assert.equal(r.response.header.aa, 0);
+		let refusing = new lib.DnsCore({ nameDB: db, refuseOutOfZone: true });
+		assert.equal(refusing.answer(query('h.example.org', TYPE.A)).response.header.rcode, RCODE.REFUSED);
+		assert.deepEqual(refusing.answer(query('h.example.org', TYPE.A), undefined, { refuseOutOfZone: false }), { dropped: 'outOfZone' });
+	});
+
+	test('limits the queries of one source in a second', function(t) {
+		t.mock.timers.enable({ apis: [ 'Date' ], now: 1000000 });
+		let limited = new lib.DnsCore({ nameDB: db, rateLimit: 3 });
+		let ask = (source) => (limited.answer(query('h.example.com', TYPE.A), source).response !== undefined);
+		assert.deepEqual([ 1, 2, 3, 4, 5 ].map(() => ask('192.0.2.1')), [ true, true, true, false, false ]);
+		assert.equal(ask('192.0.2.2'), true, 'another source has its own count');
+		t.mock.timers.tick(999);
+		assert.equal(ask('192.0.2.1'), false);
+		t.mock.timers.tick(1);
+		assert.deepEqual([ 1, 2, 3, 4 ].map(() => ask('192.0.2.1')), [ true, true, true, false ], 'a new second starts the count again');
+		assert.equal(limited.stats().dropped.rateLimited, 4);
+		t.mock.timers.reset();
+	});
+
+	test('addresses in one IPv6 /64 are one source, and a mapped IPv4 address is that IPv4 address', function() {
+		let limited = new lib.DnsCore({ nameDB: db, rateLimit: 2 });
+		let ask = (source) => (limited.answer(query('h.example.com', TYPE.A), source).response !== undefined);
+		assert.deepEqual([ '2001:db8:1:2::1', '2001:db8:1:2:ffff::2', '2001:db8:1:2::3' ].map(ask), [ true, true, false ]);
+		assert.equal(ask('2001:db8:1:3::1'), true, 'the neighbouring /64 is another source');
+		assert.deepEqual([ '192.0.2.9', '::ffff:192.0.2.9', '192.0.2.9' ].map(ask), [ true, true, false ]);
+	});
+
+	test('a source without an address is not limited, and junk is its own source', function() {
+		let limited = new lib.DnsCore({ nameDB: db, rateLimit: 1 });
+		let ask = (source) => (limited.answer(query('h.example.com', TYPE.A), source).response !== undefined);
+		assert.deepEqual([ undefined, undefined, undefined ].map(ask), [ true, true, true ]);
+		assert.deepEqual([ 'not an address', 'not an address' ].map(ask), [ true, false ]);
+	});
+
+	test('counts by outcome, and what a transport could not parse', function() {
+		core.answer(query('h.example.com', TYPE.A));
+		core.answer(query('h.example.com', TYPE.MX));
+		core.answer(query('nothing.example.com', TYPE.A));
+		core.answer(query('h.example.org', TYPE.A));
+		core.countInvalid();
+		let st = core.stats();
+		assert.deepEqual([ st.queries, st.answered, st.empty, st.nxdomain, st.dropped.outOfZone, st.dropped.invalid ], [ 4, 3, 1, 1, 1, 1 ]);
+		st.dropped.outOfZone = 99;
+		assert.equal(core.stats().dropped.outOfZone, 1, 'the counters returned are a copy');
+	});
+
+	test('validates its options', function() {
+		assert.throws(() => new lib.DnsCore({}), /NameDB/);
+		assert.throws(() => new lib.DnsCore({ nameDB: db, rateLimit: -1 }), /rate limit/);
+		assert.equal(lib.DnsCore.DEFAULT_RATE_LIMIT, 500);
+	});
+
+	test('one core can serve several servers, which then share the limit and the counters', async function() {
+		let shared = new lib.DnsCore({ nameDB: db, rateLimit: 3 });
+		let portA = await freePort();
+		let portB = await freePort();
+		let a = new lib.NameServer({ core: shared, udp: true, udpListenPort: portA, udpListenAddress: '127.0.0.1' });
+		let b = new lib.NameServer({ core: shared, tcp: true, tcpListenPort: portB, tcpListenAddress: '127.0.0.1' });
+		await Promise.all([ once(a, 'ready'), once(b, 'ready') ]);
+		try {
+			await startOfRatePeriod((ms) => dnsQuery(portA, 'h.example.com', TYPE.A, { timeoutMs: ms }));
+			// One query of this second has been answered already.
+			let results = [];
+			for (let [ port, tcp ] of [ [ portA, false ], [ portB, true ], [ portA, false ], [ portB, true ] ]) {
+				results.push((await dnsQuery(port, 'h.example.com', TYPE.A, { tcp, timeoutMs: 40 })) !== null);
+			}
+			assert.deepEqual(results, [ true, true, false, false ]);
+			assert.deepEqual(a.stats(), b.stats());
+			assert.throws(() => new lib.NameServer({ core: {}, udp: true }), /DnsCore/);
+		} finally {
+			await a.close();
+			await b.close();
 		}
 	});
 

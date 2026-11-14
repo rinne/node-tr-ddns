@@ -28,6 +28,11 @@ Every version published to npm, newest first.
 
 ### Library
 
+- `DnsCore`: answering DNS queries without a transport. `answer()` takes
+  a parsed query and its source and returns a response packet or the
+  reason why there is none. `NameServer` is now a layer on top of it and
+  accepts a shared core in its `core` option; servers that share a core
+  share the rate limit and the counters.
 - `ControlServer`: the API on a Unix domain socket.
 - `ApiCore`: the calls of the API without a transport. `handle()` takes a
   path and parameters and returns a status and a body. `ApiServer` is now

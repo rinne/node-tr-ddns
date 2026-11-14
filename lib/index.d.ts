@@ -160,9 +160,50 @@ export class NameDB extends EventEmitter {
 	dump(): Dump;
 }
 
-export interface NameServerOptions {
+export interface DnsCoreOptions {
 	/** The database to answer from. */
 	nameDB: NameDB;
+	/** Queries per second answered to one source. 0 or false for no limit. The default is 500. */
+	rateLimit?: number | false;
+	/** Answer REFUSED outside the served domains instead of nothing. */
+	refuseOutOfZone?: boolean;
+	debug?: boolean;
+}
+
+/** A DNS message as parsed and encoded by the dns2 package. */
+export interface DnsPacket {
+	header: { id: number; qr: number; opcode: number; aa: number; tc: number; rd: number; ra: number; rcode: number; [field: string]: unknown };
+	questions: { name: string; type: number; class: number }[];
+	answers: ResourceRecord[];
+	authorities: ResourceRecord[];
+	additionals: ResourceRecord[];
+	toBuffer(): Buffer;
+}
+
+/** Why a query gets no answer. */
+export type DnsDropReason = 'notQuery' | 'invalid' | 'outOfZone' | 'rateLimited' | 'error';
+
+export type DnsAnswer = { response: DnsPacket; dropped?: undefined } | { dropped: DnsDropReason; response?: undefined };
+
+/** Answering DNS queries without a transport. */
+export class DnsCore {
+	static DEFAULT_RATE_LIMIT: number;
+	constructor(config: DnsCoreOptions);
+	/**
+	 * Answers one parsed query from the given source address. Never
+	 * throws.
+	 */
+	answer(request: unknown, source?: string, options?: { refuseOutOfZone?: boolean }): DnsAnswer;
+	/** Counts a packet that could not be parsed. */
+	countInvalid(): void;
+	stats(): NameServerStats;
+}
+
+export interface NameServerOptions {
+	/** The database to answer from. Required unless core is given. */
+	nameDB?: NameDB;
+	/** A DNS core to share with other transports. */
+	core?: DnsCore;
 	udp?: boolean;
 	/** An address, a comma separated list or an array. The default is 0.0.0.0. */
 	udpListenAddress?: string | string[];

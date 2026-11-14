@@ -5,7 +5,7 @@ another program. Everything is exported from the main module, and type
 declarations are included.
 
 ```js
-const { NameDB, NameServer, ApiServer, ApiCore, ControlServer, ConfigStore, log } = require('tr-ddns');
+const { NameDB, NameServer, DnsCore, ApiServer, ApiCore, ControlServer, ConfigStore, log } = require('tr-ddns');
 ```
 
 The modules can also be required one by one, as before version 2.0.0:
@@ -125,7 +125,8 @@ The DNS server. It starts listening when it is created.
 
 | Option | Description | Default |
 | --- | --- | --- |
-| `nameDB` | The database to answer from. Required. | |
+| `nameDB` | The database to answer from. Required unless `core` is given. | |
+| `core` | A `DnsCore` to answer with, shared with other transports. `rateLimit` and `refuseOutOfZone` are then set on the core. | one of its own |
 | `udp`, `tcp` | Enable the transport. At least one is required. | off |
 | `udpListenAddress`, `tcpListenAddress` | An address, a comma separated list of addresses, or an array. | `0.0.0.0` |
 | `udpListenPort`, `tcpListenPort` | | 53 |
@@ -146,6 +147,27 @@ The constructor throws for invalid options.
 | `ready` | All listeners are up. |
 | `error` | A listener could not be started; the argument is the error. All listeners are closed. Without a handler for this event the error is thrown, as for any `EventEmitter`. |
 | `close` | The listeners have closed after `close()`. |
+
+## DnsCore
+
+Answering DNS queries without a transport: what `NameServer` runs for
+each query it receives. Use it to answer DNS over something else. The
+rate limit and the counters belong to the core, so servers that share a
+core share them.
+
+| Option | Description | Default |
+| --- | --- | --- |
+| `nameDB` | The database to answer from. Required. | |
+| `rateLimit` | Queries per second answered to one source; 0 or `false` for no limit. | 500 |
+| `refuseOutOfZone` | Answer REFUSED outside the served domains. | off |
+| `debug` | Log queries and responses. | off |
+
+| Member | Description |
+| --- | --- |
+| `answer(request, source, options)` | Answers one query. `request` is a DNS message parsed with `Packet.parse()` of the `dns2` package, `source` the address it came from. Returns `{ response }`, a packet whose `toBuffer()` gives the bytes to send, or `{ dropped }`, the reason why there is no answer: `notQuery`, `invalid`, `outOfZone`, `rateLimited` or `error`. `options.refuseOutOfZone` overrides the option of the same name for this query. Never throws. |
+| `countInvalid()` | Counts a packet that the transport could not parse. |
+| `stats()` | The counters described under `dns` in [api.md](api.md#stats). |
+| `DnsCore.DEFAULT_RATE_LIMIT` | 500. |
 
 ## ApiServer
 

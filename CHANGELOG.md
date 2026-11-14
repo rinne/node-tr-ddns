@@ -33,8 +33,32 @@ Work towards 2.0.0. Nothing in this section has been published.
 - A request body larger than 1 MiB is refused with 413.
 - Command line usage errors are printed to the standard error.
 
+- Node.js 24 or newer is required.
+- A query for a name inside a served domain is answered whatever the query
+  type is, with an empty answer when there is no data. Types that the
+  server did not know, such as HTTPS (65), used to get no answer at all,
+  which made clients wait for a timeout.
+- A name inside a served domain that is not a valid host name gets an
+  NXDOMAIN answer instead of no answer.
+- Packets that are not plain queries are ignored: responses, operations
+  other than QUERY, and packets that do not have exactly one question.
+- A DNS listener that cannot be started makes `NameServer` emit `error`,
+  and the program exits with status 1. The failure used to be silent.
+- A missing configuration file is reported as missing.
+
 ### Fixed
 
+- MX records were never returned.
+- `merge=true` copied the TXT values of a host into its MX records.
+- A TXT value longer than 255 bytes produced a malformed DNS response.
+- `/record` with an invalid value answered 400 but still rewrote the host
+  and then failed while sending a second response.
+- `/record` made an expiring host permanent.
+- `/host` with `remove=true` and `mx` is refused like the other
+  conflicting combinations.
+- Debug output of the whole database on every configuration write, and of
+  the host on every `/record` call.
+- The examples in the README.
 - A query over TCP that gets no answer no longer leaves the connection
   open until the idle timeout; the connection is closed.
 

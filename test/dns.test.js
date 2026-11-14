@@ -51,12 +51,12 @@ describe('DNS server', function() {
 				assert.deepEqual(r.answers.map((a) => a.data), [ 'token' ]);
 			});
 
-			test('answers MX', { todo: 'Phase 1 item 1' }, async function() {
+			test('answers MX', async function() {
 				let r = await s.query('h.example.com', TYPE.MX, { tcp });
 				assert.deepEqual(r.answers.map((a) => a.exchange), [ 'mail.example.com' ]);
 			});
 
-			test('answers a TXT value longer than 255 bytes', { todo: 'Phase 1 item 9' }, async function() {
+			test('answers a TXT value longer than 255 bytes', async function() {
 				let r = await s.query('long.example.com', TYPE.TXT, { tcp, edns: true });
 				assert.equal(r.answers.length, 1);
 				assert.equal(r.answers[0].data, 'x'.repeat(300));
@@ -92,7 +92,7 @@ describe('DNS server', function() {
 				assert.equal(await s.query('h.example.com', TYPE.A, { tcp, 'class': 3, timeoutMs: 250 }), null);
 			});
 
-			test('answers query types it has no data for', { todo: 'Phase 1 item 8' }, async function() {
+			test('answers query types it has no data for', async function() {
 				for (let type of [ TYPE.HTTPS, TYPE.SVCB, TYPE.DS, 99, 65280 ]) {
 					let r = await s.query('h.example.com', type, { tcp, timeoutMs: 250 });
 					assert.notEqual(r, null, 'type ' + type);
@@ -101,16 +101,21 @@ describe('DNS server', function() {
 				}
 			});
 
-			test('stays silent for packets that are not plain queries', { todo: 'Phase 1 item 14' }, async function() {
+			test('stays silent for packets that are not plain queries', async function() {
 				assert.equal(await s.query('h.example.com', TYPE.A, { tcp, qr: 1, timeoutMs: 250 }), null, 'response');
 				assert.equal(await s.query('h.example.com', TYPE.A, { tcp, opcode: 5, timeoutMs: 250 }), null, 'UPDATE');
 				assert.equal(await s.query('h.example.com', TYPE.A, { tcp, opcode: 4, timeoutMs: 250 }), null, 'NOTIFY');
 				assert.equal(await s.query('h.example.com', TYPE.A, { tcp, extraQuestions: [ { name: 'h.example.com', type: TYPE.AAAA } ], timeoutMs: 250 }), null, 'two questions');
 			});
 
-			test('answers a served name that is not a valid host name', { todo: 'Phase 1 item 15' }, async function() {
-				let r = await s.query('bad_label.x.example.com', TYPE.A, { tcp, timeoutMs: 250 });
-				assert.notEqual(r, null);
+			test('answers a served name that is not a valid host name', async function() {
+				for (let name of [ 'bad_label.x.example.com', '-x.example.com', 'a b.example.com' ]) {
+					let r = await s.query(name, TYPE.A, { tcp, timeoutMs: 250 });
+					assert.notEqual(r, null, name);
+					assert.equal(r.header.rcode, RCODE.NXDOMAIN, name);
+					assert.equal(r.answers.length, 0);
+				}
+				assert.equal(await s.query('bad_label.x.example.org', TYPE.A, { tcp, timeoutMs: 250 }), null);
 			});
 
 		});
@@ -178,7 +183,7 @@ describe('NameServer', function() {
 		db.close();
 	});
 
-	test('reports a failed bind as an error event', { todo: 'Phase 1 item 7' }, async function() {
+	test('reports a failed bind as an error event', async function() {
 		let db = new lib.NameDB();
 		let port = await freePort();
 		let blocker = dgram.createSocket('udp4');

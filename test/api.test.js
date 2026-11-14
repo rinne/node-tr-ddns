@@ -186,7 +186,7 @@ describe('HTTP API', function() {
 			assert.equal(s.db.stats().hosts, 0);
 		});
 
-		test('remove conflicts with mx as with the other records', { todo: 'Phase 1 item 10' }, async function() {
+		test('remove conflicts with mx as with the other records', async function() {
 			bad(await s.call('/host', { host: 'h.example.com', mx: 'mail.example.com', remove: 'true' }), 'Bad request (conflicting params)');
 		});
 
@@ -223,7 +223,7 @@ describe('HTTP API', function() {
 			bad(await s.call('/record', { host: 'h.example.org', command: 'add', type: 'a', value: '1.2.3.4' }), 'Bad request (no matching domain)');
 		});
 
-		test('an invalid value is rejected with one response and changes nothing', { todo: 'Phase 1 item 5' }, async function() {
+		test('an invalid value is rejected with one response and changes nothing', async function() {
 			ok(await s.call('/record', { host: 'h.example.com', command: 'add', type: 'a', value: '1.2.3.4' }));
 			let serial = (await s.call('/dump')).body.data.domains[0].serial;
 			let lines = await captureConsole(async function() {
@@ -236,7 +236,7 @@ describe('HTTP API', function() {
 			assert.equal((await s.call('/dump')).body.data.domains[0].serial, serial);
 		});
 
-		test('keeps the lifetime of the host', { todo: 'Phase 1 item 6' }, async function() {
+		test('keeps the lifetime of the host', async function() {
 			ok(await s.call('/host', { host: 'h.example.com', a: '1.2.3.4', ttl: '3600' }));
 			let expires = (await host('h.example.com')).expires;
 			ok(await s.call('/record', { host: 'h.example.com', command: 'add', type: 'a', value: '5.6.7.8' }));
@@ -244,7 +244,7 @@ describe('HTTP API', function() {
 			assert.ok((after !== null) && (Math.abs(after - expires) < 1000));
 		});
 
-		test('does not print anything', { todo: 'Phase 1 item 4' }, async function() {
+		test('does not print anything', async function() {
 			let lines = await captureConsole(async function() {
 				ok(await s.call('/record', { host: 'h.example.com', command: 'add', type: 'a', value: '1.2.3.4' }));
 			});

@@ -105,7 +105,7 @@ describe('command line', function() {
 		}
 	});
 
-	test('a missing configuration file is reported as missing', { todo: 'Phase 1 item 12' }, async function() {
+	test('a missing configuration file is reported as missing', async function() {
 		let dir = tmpDir();
 		try {
 			let r = await runCli([ '-c', path.join(dir, 'c.json') ]);
@@ -217,6 +217,22 @@ describe('server started from the command line', function() {
 		let s = await startServer(t, { hosts: [], domains: [] }, [ '--debug' ]);
 		await apiCall(s.base, '/domain', { domain: 'example.com' });
 		await waitFor(() => /EVENT: add/.test(s.h.stdout));
+	});
+
+	test('exits when a DNS listener cannot be started', async function(t) {
+		let dir = tmpDir();
+		let cf = path.join(dir, 'c.json');
+		fs.writeFileSync(cf, '{"hosts":[],"domains":[]}');
+		let port = await freePort();
+		let blocker = require('node:dgram').createSocket('udp4');
+		await new Promise((r) => blocker.bind(port, '127.0.0.1', r));
+		t.after(function() {
+			blocker.close();
+			fs.rmSync(dir, { recursive: true, force: true });
+		});
+		let r = await runCli([ '-c', cf, '--udp', '--udp-listen-address=127.0.0.1', '--udp-listen-port=' + port ]);
+		assert.equal(r.code, 1);
+		assert.match(r.stderr, /Unable to start DNS server \(EADDRINUSE\)/);
 	});
 
 	test('stops on SIGTERM', async function(t) {

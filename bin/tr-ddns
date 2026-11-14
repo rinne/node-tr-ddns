@@ -109,6 +109,10 @@ async function writeConfig(fn, config) {
 	} catch (e) {
 		if (e.code === 'ENOENT') {
 			cf = false;
+			if (! opt.value('init-config-file')) {
+				console.error('Configuration file not found (ENOENT). Use --init-config-file to create it.');
+				process.exit(1);
+			}
 		} else {
 			console.error('Unable to access configuration file (' + (e.code ?? '?') + ')');
 			process.exit(1);
@@ -143,7 +147,7 @@ async function writeConfig(fn, config) {
 				throw new Error('Invalid config');
 			}
 		} catch (e) {
-			console.error('Malformatted configuration1');
+			console.error('Malformatted configuration');
 			process.exit(1);
 		}
 	}
@@ -199,7 +203,7 @@ async function writeConfig(fn, config) {
 		db.on('remove', function(name) { changeCb('remove', name); });
 		db.on('flush', function(name) { changeCb('flush'); });
 		db.on('removedomain', function(name) { changeCb('removedomain', name); });
-		db.on('adddomain', function(name) { changeCb('addomain', name); });
+		db.on('adddomain', function(name) { changeCb('adddomain', name); });
 	}
 
 	const api = (opt.value('http-api') ?
@@ -222,6 +226,14 @@ async function writeConfig(fn, config) {
 						nameDB: db
 					}) :
 					undefined);
+
+	// A listener that cannot be started is fatal.
+	if (server) {
+		server.on('error', function(e) {
+			console.error('Unable to start DNS server (' + (e?.code ?? '?') + ')');
+			process.exit(1);
+		});
+	}
 
 })();
 

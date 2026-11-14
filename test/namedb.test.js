@@ -182,7 +182,7 @@ describe('NameDB', function() {
 			assert.deepEqual(d.txt, []);
 		});
 
-		test('merge does not copy TXT values into MX', { todo: 'Phase 1 item 2' }, function() {
+		test('merge does not copy TXT values into MX', function() {
 			db.set('h.example.com', { txt: 'hello', mx: 'mail.example.com' });
 			db.set('h.example.com', { a: '1.2.3.4' }, undefined, true);
 			assert.deepEqual(db.dump().hosts[0].data.mx, [ 'mail.example.com' ]);
@@ -319,7 +319,31 @@ describe('NameDB', function() {
 			assert.equal(s2, s1 + 1);
 		});
 
-		test('answers MX', { todo: 'Phase 1 item 1' }, function() {
+		test('lookup tells apart outside, nonexistent and unanswerable', function() {
+			assert.equal(db.lookup('h.example.org', T.A), false);
+			assert.equal(db.lookup(7, T.A), false);
+			assert.deepEqual(db.lookup('bad_name.example.com', T.A), { rcode: 3, answers: [] });
+			assert.deepEqual(db.lookup('h.example.com', 65), { rcode: 0, answers: [] });
+			assert.equal(db.lookup('h.example.com', T.A).answers.length, 2);
+		});
+
+		test('a long TXT value is split into strings of at most 255 bytes', function() {
+			db.set('long.example.com', { txt: 'ä'.repeat(200) });
+			let data = db.get('long.example.com', T.TXT)[0].data;
+			assert.ok(Array.isArray(data));
+			assert.deepEqual(data.map((b) => b.length), [ 255, 145 ]);
+			assert.equal(Buffer.concat(data).toString('utf8'), 'ä'.repeat(200));
+			assert.equal(db.get('h.example.com', T.TXT)[0].data, 'hello');
+		});
+
+		test('getHostExpires', function() {
+			assert.equal(db.getHostExpires('h.example.com'), null);
+			assert.equal(db.getHostExpires('nope.example.com'), undefined);
+			db.set('t.example.com', { a: '1.2.3.4' }, 60000);
+			assert.ok(db.getHostExpires('t.example.com') > Date.now());
+		});
+
+		test('answers MX', function() {
 			let mx = db.get('h.example.com', T.MX);
 			assert.deepEqual(mx.map((r) => [ r.exchange, r.priority ]), [ [ 'mail.example.com', 1 ] ]);
 		});
@@ -356,7 +380,7 @@ describe('NameDB', function() {
 			}
 		});
 
-		test('does not print anything', { todo: 'Phase 1 item 3' }, async function() {
+		test('does not print anything', async function() {
 			db.addDomain('example.com');
 			db.set('h.example.com', { a: '1.2.3.4' });
 			let lines = await captureConsole(() => { db.dump(); });

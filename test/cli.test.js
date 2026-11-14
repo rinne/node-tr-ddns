@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const { TYPE, LAUNCHER, startOfRatePeriod, runCli, startCli, tmpDir, freePort, freeTcpPort, apiCall, dnsQuery, waitFor } = require('./helpers');
+const { TYPE, LAUNCHER, startOfRatePeriod, runCli, startCli, tmpDir, freePort, freeTcpPort, apiCall, dnsQuery, waitFor, full } = require('./helpers');
 
 function readJson(fn) {
 	return JSON.parse(fs.readFileSync(fn, 'utf8'));
@@ -137,7 +137,7 @@ describe('server started from the command line', function() {
 	test('serves DNS and the API from a configuration file', async function(t) {
 		let s = await startServer(t, {
 			domains: [ { name: 'example.com' } ],
-			hosts: [ { name: 'h.example.com', data: { a: [ '1.2.3.4', '5.6.7.8' ], aaaa: [ '2001:db8:0:0:0:0:0:1' ], txt: [ 'hello' ], mx: [] } } ]
+			hosts: [ { name: 'h.example.com', data: full({ a: [ '1.2.3.4', '5.6.7.8' ], aaaa: [ '2001:db8:0:0:0:0:0:1' ], txt: [ 'hello' ], mx: [] }) } ]
 		});
 		let r = await dnsQuery(s.dnsPort, 'h.example.com', TYPE.A);
 		assert.deepEqual(r.answers.map((a) => a.address).sort(), [ '1.2.3.4', '5.6.7.8' ]);
@@ -153,7 +153,7 @@ describe('server started from the command line', function() {
 			hosts: [ { name: 'old.example.com', lcname: 'old.example.com', domain: 'example.com', data: { a: '1.2.3.4', aaaa: '2001:db8::1', txt: 'hello' }, expires: null } ]
 		});
 		let d = (await apiCall(s.base, '/dump')).body.data;
-		assert.deepEqual(d.hosts[0].data, { a: [ '1.2.3.4' ], aaaa: [ '2001:db8:0:0:0:0:0:1' ], txt: [ 'hello' ], mx: [] });
+		assert.deepEqual(d.hosts[0].data, full({ a: [ '1.2.3.4' ], aaaa: [ '2001:db8:0:0:0:0:0:1' ], txt: [ 'hello' ], mx: [] }));
 		assert.deepEqual(readJson(s.cf).hosts[0].data, d.hosts[0].data, 'the file is rewritten in the current format at startup');
 	});
 
@@ -322,6 +322,56 @@ describe('server started from the command line', function() {
 		let local = await startServer(t, { hosts: [], domains: [] });
 		await local.h.stop();
 		assert.doesNotMatch(local.h.stderr, /Warning/);
+	});
+
+	test('--dns-refuse-out-of-zone answers REFUSED outside the served domains', async function(t) {
+		let s = await startServer(t, { hosts: [], domains: [ { name: 'example.com' } ] }, [ '--dns-refuse-out-of-zone' ]);
+		let r = await dnsQuery(s.dnsPort, 'example.org', TYPE.A);
+		assert.equal(r.header.rcode, 5);
+		let plain = await startServer(t, { hosts: [], domains: [ { name: 'example.com' } ] });
+		assert.equal(await dnsQuery(plain.dnsPort, 'example.org', TYPE.A, { timeoutMs: 150 }), null);
+	});
+
+	test('the listen address options take a list', async function(t) {
+		let dir = tmpDir();
+		let cf = path.join(dir, 'c.json');
+		fs.writeFileSync(cf, '{"hosts":[],"domains":[{"name":"example.com"}]}');
+		t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+		let hasIpv6 = await new Promise(function(resolve) {
+			let sock = require('node:dgram').createSocket('udp6');
+			sock.once('error', function() { resolve(false); });
+			sock.bind(0, '::1', function() { sock.close(function() { resolve(true); }); });
+		});
+		let addresses = hasIpv6 ? [ '127.0.0.1', '::1' ] : [ '127.0.0.1' ];
+		let dnsPort = await freePort();
+		let apiPort = await freeTcpPort();
+		let h = await startCli([ '-c', cf, '--udp', '--udp-listen-address=' + addresses.join(','), '--udp-listen-port=' + dnsPort,
+								 '--tcp', '--tcp-listen-address=' + addresses.join(', '), '--tcp-listen-port=' + dnsPort,
+								 '--http-api', '--http-api-listen-address=127.0.0.1', '--http-api-listen-port=' + apiPort ],
+							   { waitUrl: 'http://127.0.0.1:' + apiPort + '/' });
+		t.after(() => h.stop('SIGKILL'));
+		for (let address of addresses) {
+			for (let tcp of [ false, true ]) {
+				let r = await dnsQuery(dnsPort, 'example.com', TYPE.SOA, { address, tcp });
+				assert.equal(r.answers.length, 1, address);
+			}
+		}
+		let r = await runCli([ '-c', cf, '--udp', '--udp-listen-address=127.0.0.1,nope' ]);
+		assert.notEqual(r.code, 0);
+	});
+
+	test('the settings of a domain survive a restart', async function(t) {
+		let s = await startServer(t, { hosts: [], domains: [] }, [ '--config-write-interval=0' ]);
+		assert.equal((await apiCall(s.base, '/domain', { domain: 'example.com', ns: 'ns1.example.net', ttl: '300' })).status, 200);
+		assert.equal((await apiCall(s.base, '/host', { host: 'alias.example.com', cname: 'www.example.com' })).status, 200);
+		await s.h.stop();
+		assert.equal(s.h.code, 0);
+		let again = await startServer(t, readJson(s.cf));
+		let r = await dnsQuery(again.dnsPort, 'example.com', TYPE.SOA);
+		assert.equal(r.answers[0].primary, 'ns1.example.net');
+		assert.equal(r.answers[0].ttl, 300);
+		r = await dnsQuery(again.dnsPort, 'alias.example.com', TYPE.CNAME);
+		assert.equal(r.answers[0].domain, 'www.example.com');
 	});
 
 	test('--dns-rate-limit limits the queries of one source', async function(t) {

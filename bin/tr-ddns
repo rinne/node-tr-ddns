@@ -18,6 +18,14 @@ function commandLineOptsParse() {
 		}
 		return ipaddr.parse(s).toNormalizedString();
 	}
+	// One address or several separated by commas.
+	function validIpAddrListCb(s) {
+		let list = s.split(',').map((x) => validIpAddrCb(x.trim()));
+		if (list.some((x) => (x === undefined))) {
+			return undefined;
+		}
+		return list.join(',');
+	}
 	const ou = require('optist/util');
 	return ((new (require('optist')))
 			.opts([].concat(
@@ -41,9 +49,9 @@ function commandLineOptsParse() {
 					description: 'Enable UDP server',
 					environment: 'TR_DDNS_OPT_UDP' },
 				  { longName: 'udp-listen-address',
-					description: 'Listen address for UDP server',
+					description: 'Listen address(es) for UDP server, comma separated',
 					hasArg: true,
-					optArgCb: validIpAddrCb,
+					optArgCb: validIpAddrListCb,
 					environment: 'TR_DDNS_OPT_UDP_LISTEN_ADDRESS',
 					defaultValue: '0.0.0.0' },
 				  { longName: 'udp-listen-port',
@@ -56,8 +64,8 @@ function commandLineOptsParse() {
 					description: 'Enable TCP server',
 					environment: 'TR_DDNS_OPT_TCP' },
 				  { longName: 'tcp-listen-address',
-					description: 'Listen address for TCP server',
-					optArgCb: validIpAddrCb,
+					description: 'Listen address(es) for TCP server, comma separated',
+					optArgCb: validIpAddrListCb,
 					hasArg: true,
 					defaultValue: '0.0.0.0',
 					environment: 'TR_DDNS_OPT_TCP_LISTEN_ADDRESS' },
@@ -73,6 +81,9 @@ function commandLineOptsParse() {
 					optArgCb: ou.integerWithLimitsCbFactory(0, 1000000),
 					environment: 'TR_DDNS_OPT_DNS_RATE_LIMIT',
 					defaultValue: NameServer.DEFAULT_RATE_LIMIT.toString() },
+				  { longName: 'dns-refuse-out-of-zone',
+					description: 'Answer REFUSED to queries outside of served domains instead of ignoring them',
+					environment: 'TR_DDNS_OPT_DNS_REFUSE_OUT_OF_ZONE' },
 				  { longName: 'http-api',
 					description: 'Enable HTTP-API server',
 					environment: 'TR_DDNS_OPT_HTTP_API' },
@@ -192,7 +203,7 @@ function basicAuthCookie(opt) {
 	store.watch();
 
 	if (debug) {
-		for (let event of [ 'add', 'update', 'remove', 'flush', 'removedomain', 'adddomain' ]) {
+		for (let event of [ 'add', 'update', 'remove', 'flush', 'removedomain', 'adddomain', 'updatedomain' ]) {
 			db.on(event, function(name) { log('EVENT:', event + '(' + (name ? name : '') + ')'); });
 		}
 	}
@@ -207,6 +218,7 @@ function basicAuthCookie(opt) {
 						udpListenPort: opt.value('udp-listen-port'),
 						udpListenAddress: opt.value('udp-listen-address'),
 						rateLimit: opt.value('dns-rate-limit'),
+						refuseOutOfZone: opt.value('dns-refuse-out-of-zone'),
 						nameDB: db
 					}) :
 					undefined);

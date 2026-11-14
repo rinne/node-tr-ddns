@@ -243,6 +243,12 @@ async function startOfRatePeriod(query) {
 	throw new Error('The rate limit never opened again');
 }
 
+// The records of a host as they are dumped: every record type is
+// present, the ones not given as empty arrays.
+function full(data) {
+	return Object.assign({ a: [], aaaa: [], txt: [], mx: [], cname: [], ns: [], srv: [], caa: [] }, data);
+}
+
 function tmpDir() {
 	return fs.mkdtempSync(path.join(os.tmpdir(), 'tr-ddns-test-'));
 }
@@ -327,5 +333,5 @@ module.exports = {
 	ROOT, LIB, CLI, LAUNCHER, lib, Packet, TYPE, RCODE,
 	freePort, freeTcpPort, freeUdpPort,
 	buildQuery, udpExchange, tcpExchange, dnsQuery,
-	apiCall, captureConsole, startStack, startOfRatePeriod, tmpDir, runCli, startCli, waitFor
+	apiCall, captureConsole, full, startStack, startOfRatePeriod, tmpDir, runCli, startCli, waitFor
 };

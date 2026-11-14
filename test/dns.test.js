@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const { once } = require('node:events');
 const dgram = require('node:dgram');
 
-const { lib, TYPE, RCODE, startStack, startOfRatePeriod, freePort, captureConsole } = require('./helpers');
+const { lib, TYPE, RCODE, startStack, startOfRatePeriod, freePort, captureConsole, dnsQuery } = require('./helpers');
 
 describe('DNS server', function() {
 
@@ -122,6 +122,110 @@ describe('DNS server', function() {
 
 	}
 
+	describe('response details', function() {
+
+		test('answers are authoritative', async function() {
+			for (let [ name, type ] of [ [ 'h.example.com', TYPE.A ], [ 'h.example.com', TYPE.SRV ], [ 'nothing.example.com', TYPE.A ], [ 'example.com', TYPE.SOA ] ]) {
+				let r = await s.query(name, type);
+				assert.equal(r.header.aa, 1, name);
+				assert.equal(r.header.ra, 0);
+				assert.equal(r.header.rd, 1, 'the RD bit is copied from the query');
+			}
+		});
+
+		test('a name that does not exist gives NXDOMAIN with the SOA in the authority section', async function() {
+			let r = await s.query('nothing.example.com', TYPE.A);
+			assert.equal(r.header.rcode, RCODE.NXDOMAIN);
+			assert.equal(r.answers.length, 0);
+			assert.equal(r.authorities.length, 1);
+			assert.equal(r.authorities[0].type, TYPE.SOA);
+			assert.equal(r.authorities[0].name, 'example.com');
+			assert.equal(r.authorities[0].ttl, 10);
+			assert.equal(r.authorities[0].minimum, 10);
+		});
+
+		test('a name without the type asked gives no data with the SOA in the authority section', async function() {
+			for (let type of [ TYPE.SRV, TYPE.HTTPS, TYPE.CNAME ]) {
+				let r = await s.query('h.example.com', type);
+				assert.equal(r.header.rcode, RCODE.NOERROR);
+				assert.equal(r.answers.length, 0);
+				assert.deepEqual(r.authorities.map((a) => a.type), [ TYPE.SOA ]);
+			}
+		});
+
+		test('an OPT record is returned to a client that sent one, and only then', async function() {
+			let r = await s.query('h.example.com', TYPE.A, { edns: true });
+			let opt = r.additionals.filter((a) => (a.type === TYPE.EDNS));
+			assert.equal(opt.length, 1);
+			assert.equal(opt[0]['class'], 1232, 'the UDP payload size offered');
+			r = await s.query('nothing.example.com', TYPE.A, { edns: true, tcp: true });
+			assert.equal(r.additionals.filter((a) => (a.type === TYPE.EDNS)).length, 1);
+			r = await s.query('h.example.com', TYPE.A);
+			assert.equal(r.additionals.length, 0);
+		});
+
+	});
+
+	describe('record types', function() {
+
+		test('MX with priorities', async function() {
+			s.db.set('mail.example.com', { mx: [ '10 mx1.example.com', '20 mx2.example.com' ] });
+			let r = await s.query('mail.example.com', TYPE.MX);
+			assert.deepEqual(r.answers.map((a) => [ a.priority, a.exchange ]), [ [ 10, 'mx1.example.com' ], [ 20, 'mx2.example.com' ] ]);
+		});
+
+		test('SRV', async function() {
+			s.db.set('_sip._tcp.example.com', { srv: '10 5 5060 sip.example.com' });
+			let r = await s.query('_sip._tcp.example.com', TYPE.SRV, { tcp: true });
+			assert.deepEqual(r.answers.map((a) => [ a.priority, a.weight, a.port, a.target ]), [ [ 10, 5, 5060, 'sip.example.com' ] ]);
+		});
+
+		test('CAA', async function() {
+			s.db.set('caa.example.com', { caa: '0 issue letsencrypt.org' });
+			let r = await s.query('caa.example.com', TYPE.CAA);
+			assert.deepEqual(r.answers.map((a) => [ a.flags, a.tag, a.value ]), [ [ 0, 'issue', 'letsencrypt.org' ] ]);
+		});
+
+		test('CNAME with the records of the target', async function() {
+			s.db.set('alias.example.com', { cname: 'h.example.com' });
+			let r = await s.query('alias.example.com', TYPE.A);
+			assert.equal(r.header.aa, 1);
+			assert.deepEqual(r.answers.map((a) => a.type), [ TYPE.CNAME, TYPE.A, TYPE.A ]);
+			assert.equal(r.answers[0].domain, 'h.example.com');
+			r = await s.query('alias.example.com', TYPE.CNAME);
+			assert.deepEqual(r.answers.map((a) => a.domain), [ 'h.example.com' ]);
+		});
+
+		test('a delegation is answered with a referral', async function() {
+			s.db.set('sub.example.com', { ns: 'ns.sub.example.com' });
+			s.db.set('ns.sub.example.com', { a: '192.0.2.53' });
+			let r = await s.query('www.sub.example.com', TYPE.A);
+			assert.equal(r.header.rcode, RCODE.NOERROR);
+			assert.equal(r.header.aa, 0);
+			assert.equal(r.answers.length, 0);
+			assert.deepEqual(r.authorities.map((a) => [ a.name, a.type, a.ns ]), [ [ 'sub.example.com', TYPE.NS, 'ns.sub.example.com' ] ]);
+			assert.deepEqual(r.additionals.map((a) => [ a.name, a.address ]), [ [ 'ns.sub.example.com', '192.0.2.53' ] ]);
+		});
+
+		test('the settings of a domain show in SOA, NS and the ttl of records', async function() {
+			s.db.addDomain('settings.test', { ns: [ 'ns1.settings.test', 'ns2.example.net' ], admin: 'hostmaster@settings.test',
+											  ttl: 300, refresh: 7200, retry: 900, expiration: 1209600, minimum: 60 });
+			s.db.set('ns1.settings.test', { a: '192.0.2.1' });
+			let r = await s.query('settings.test', TYPE.SOA);
+			let soa = r.answers[0];
+			assert.deepEqual([ soa.primary, soa.admin, soa.ttl, soa.refresh, soa.retry, soa.expiration, soa.minimum ],
+							 [ 'ns1.settings.test', 'hostmaster.settings.test', 300, 7200, 900, 1209600, 60 ]);
+			r = await s.query('settings.test', TYPE.NS);
+			assert.deepEqual(r.answers.map((a) => a.ns), [ 'ns1.settings.test', 'ns2.example.net' ]);
+			assert.deepEqual(r.additionals.map((a) => a.address), [ '192.0.2.1' ]);
+			r = await s.query('ns1.settings.test', TYPE.A);
+			assert.equal(r.answers[0].ttl, 300);
+			r = await s.query('nothing.settings.test', TYPE.A);
+			assert.equal(r.authorities[0].ttl, 60);
+		});
+
+	});
+
 	test('truncates over UDP when the answer does not fit', async function() {
 		let many = [];
 		for (let i = 0; i < 60; i++) {
@@ -162,8 +266,8 @@ describe('DNS server', function() {
 	test('counts queries by outcome', async function() {
 		let a = s.ns.stats();
 		await s.query('h.example.com', TYPE.A);
+		await s.query('h.example.com', TYPE.SRV);
 		await s.query('nothing.example.com', TYPE.A);
-		await s.query('bad_name.x.example.com', TYPE.A);
 		await s.query('h.example.org', TYPE.A, { timeoutMs: 100 });
 		await s.query('h.example.com', TYPE.A, { qr: 1, timeoutMs: 100 });
 		await s.query('h.example.com', TYPE.A, { 'class': 3, timeoutMs: 100 });
@@ -182,6 +286,105 @@ describe('DNS server', function() {
 		let before = s.db.stats().lookup.total;
 		await s.query('h.example.com', TYPE.A);
 		assert.equal(s.db.stats().lookup.total, before + 1);
+	});
+
+});
+
+describe('DNS server that refuses', function() {
+
+	test('answers REFUSED outside the served domains when asked to', async function() {
+		let s = await startStack({ dns: { refuseOutOfZone: true } });
+		try {
+			s.db.addDomain('example.com');
+			s.db.set('h.example.com', { a: '1.2.3.4' });
+			for (let tcp of [ false, true ]) {
+				let r = await s.query('h.example.org', TYPE.A, { tcp });
+				assert.notEqual(r, null);
+				assert.equal(r.header.rcode, RCODE.REFUSED);
+				assert.equal(r.header.aa, 0);
+				assert.equal(r.answers.length + r.authorities.length + r.additionals.length, 0);
+				assert.equal((await s.query('h.example.com', TYPE.A, { tcp })).header.rcode, RCODE.NOERROR);
+			}
+			assert.equal(await s.query('h.example.org', TYPE.A, { qr: 1, timeoutMs: 100 }), null, 'what is not a query is still ignored');
+			let st = s.ns.stats();
+			assert.equal(st.refused, 2);
+			assert.equal(st.dropped.outOfZone, 0);
+		} finally {
+			await s.close();
+		}
+	});
+
+});
+
+describe('DNS server on several addresses', function() {
+
+	// Whether this machine has the IPv6 loopback address.
+	async function hasIpv6() {
+		return new Promise(function(resolve) {
+			let sock = dgram.createSocket('udp6');
+			sock.once('error', function() { resolve(false); });
+			sock.bind(0, '::1', function() { sock.close(function() { resolve(true); }); });
+		});
+	}
+
+	test('listens on every address of a list', async function(t) {
+		if (! (await hasIpv6())) {
+			t.skip('no IPv6 loopback address');
+			return;
+		}
+		let db = new lib.NameDB();
+		db.addDomain('example.com');
+		db.set('h.example.com', { a: '1.2.3.4' });
+		let port = await freePort();
+		for (let addresses of [ [ '127.0.0.1', '::1' ], '127.0.0.1, ::1' ]) {
+			let ns = new lib.NameServer({ nameDB: db, udp: true, udpListenPort: port, udpListenAddress: addresses,
+										  tcp: true, tcpListenPort: port, tcpListenAddress: addresses });
+			await once(ns, 'ready');
+			try {
+				for (let address of [ '127.0.0.1', '::1' ]) {
+					for (let tcp of [ false, true ]) {
+						let r = await dnsQuery(port, 'h.example.com', TYPE.A, { address, tcp });
+						assert.equal(r.answers.length, 1, address + (tcp ? ' tcp' : ' udp'));
+					}
+				}
+			} finally {
+				let closed = once(ns, 'close');
+				await ns.close();
+				await closed;
+			}
+		}
+		db.close();
+	});
+
+	test('one address that cannot be used stops all of them', async function() {
+		let db = new lib.NameDB();
+		let port = await freePort();
+		let blocker = require('node:net').createServer();
+		await new Promise((r) => blocker.listen(port, '127.0.0.1', r));
+		let ns = new lib.NameServer({ nameDB: db, udp: true, udpListenPort: port, udpListenAddress: '127.0.0.1',
+									  tcp: true, tcpListenPort: port, tcpListenAddress: '127.0.0.1' });
+		try {
+			let [ e ] = await once(ns, 'error');
+			assert.equal(e.code, 'EADDRINUSE');
+			await new Promise((r) => setTimeout(r, 50));
+			assert.equal(await dnsQuery(port, 'example.com', TYPE.SOA, { timeoutMs: 100 }), null, 'the UDP listener is closed too');
+		} finally {
+			await ns.close();
+			blocker.close();
+			db.close();
+		}
+	});
+
+	test('an invalid list is refused', function() {
+		let db = new lib.NameDB();
+		try {
+			for (let bad of [ '', '127.0.0.1,', '127.0.0.1,nope', [], [ '127.0.0.1', 7 ], 7 ]) {
+				assert.throws(() => new lib.NameServer({ nameDB: db, udp: true, udpListenAddress: bad }), /UDP listen address/, JSON.stringify(bad));
+				assert.throws(() => new lib.NameServer({ nameDB: db, tcp: true, tcpListenAddress: bad }), /TCP listen address/, JSON.stringify(bad));
+			}
+		} finally {
+			db.close();
+		}
 	});
 
 });

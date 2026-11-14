@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { once } = require('node:events');
 
-const { lib, Packet, tmpDir, waitFor } = require('./helpers');
+const { lib, Packet, tmpDir, waitFor, full } = require('./helpers');
 
 const { NameDB, ConfigStore } = lib;
 
@@ -70,7 +70,7 @@ describe('ConfigStore', function() {
 		let d = db.dump();
 		assert.deepEqual(d.domains.map((x) => x.name), [ 'example.com' ]);
 		assert.deepEqual(d.hosts.map((x) => x.name).sort(), [ 'ok.example.com', 'timed.example.com' ]);
-		assert.deepEqual(d.hosts.find((x) => (x.name === 'ok.example.com')).data, { a: [ '1.2.3.4' ], aaaa: [], txt: [ 'old style' ], mx: [] });
+		assert.deepEqual(d.hosts.find((x) => (x.name === 'ok.example.com')).data, full({ a: [ '1.2.3.4' ], aaaa: [], txt: [ 'old style' ], mx: [] }));
 		assert.ok(Math.abs(d.hosts.find((x) => (x.name === 'timed.example.com')).expires - (now + 60000)) < 2000);
 		assert.equal(warnings.length, 10);
 		for (let name of [ 'bad domain', 'example.com', 'garbage.example.com', 'garbage2.example.com', 'garbage3.example.com',
@@ -85,6 +85,41 @@ describe('ConfigStore', function() {
 		fs.writeFileSync(file, JSON.stringify({ domains: [ { name: 'example.com', serial: ahead } ], hosts: [] }));
 		await store.load();
 		assert.equal(db.get('example.com', Packet.TYPE.SOA)[0].serial, ahead);
+	});
+
+	test('the settings of a domain are saved and loaded', async function() {
+		db.addDomain('example.com', { ns: [ 'ns1.example.net', 'ns2.example.net' ], admin: 'hostmaster@example.com', ttl: 300, minimum: 120 });
+		db.addDomain('plain.test');
+		db.set('alias.example.com', { cname: 'www.example.com' });
+		db.set('_sip._tcp.example.com', { srv: '10 5 5060 sip.example.com' });
+		await store.write();
+		let saved = readJson(file).domains;
+		assert.deepEqual(Object.keys(saved.find((d) => (d.name === 'plain.test'))).sort(), [ 'expires', 'lcname', 'name', 'serial' ]);
+		let other = new NameDB();
+		let otherStore = new ConfigStore({ file: file, nameDB: other });
+		try {
+			assert.deepEqual(await otherStore.load(), []);
+			let a = db.getDomain('example.com'), b = other.getDomain('example.com');
+			a.serial = b.serial = 0;
+			assert.deepEqual(a, b);
+			assert.deepEqual(other.dump().hosts, db.dump().hosts);
+		} finally {
+			otherStore.close();
+			other.close();
+		}
+	});
+
+	test('a domain with unusable settings is served with the defaults', async function() {
+		fs.writeFileSync(file, JSON.stringify({
+			domains: [ { name: 'example.com', ns: [ 'not valid' ], ttl: 300 } ],
+			hosts: [ { name: 'h.example.com', data: { a: [ '1.2.3.4' ] } } ]
+		}));
+		let warnings = await store.load();
+		assert.equal(warnings.length, 1);
+		assert.match(warnings[0], /Ignored invalid settings of domain entry \(example\.com\)/);
+		assert.deepEqual(db.getDomain('example.com').ns, [ 'example.com' ]);
+		assert.equal(db.getDomain('example.com').ttl, 60);
+		assert.equal(db.stats().hosts, 1);
 	});
 
 	test('what is written can be loaded again', async function() {

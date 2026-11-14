@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 
 const { once } = require('node:events');
 
-const { lib, startStack, captureConsole, freeTcpPort } = require('./helpers');
+const { lib, startStack, captureConsole, freeTcpPort, full } = require('./helpers');
 
 const pkg = require('../package.json');
 
@@ -100,6 +100,48 @@ describe('HTTP API', function() {
 			assert.deepEqual(ok(await s.call('/dump')), { hosts: [], domains: [] });
 		});
 
+		test('a domain can be added with settings', async function() {
+			ok(await s.call('/domain', { domain: 'example.org', ns: [ 'ns1.example.net', 'ns2.example.net' ], admin: 'hostmaster@example.org',
+										 ttl: '300', refresh: '3600', retry: '600', expiration: '604800', minimum: '120' }));
+			let d = ok(await s.call('/dump')).domains.find((x) => (x.lcname === 'example.org'));
+			assert.deepEqual([ d.ns, d.admin, d.ttl, d.refresh, d.retry, d.expiration, d.minimum ],
+							 [ [ 'ns1.example.net', 'ns2.example.net' ], 'hostmaster.example.org', 300, 3600, 600, 604800, 120 ]);
+			ok(await s.call('/domain', { domain: 'example.net', ns: 'ns.example.net', ttl: 120 }, { json: true }));
+			assert.deepEqual(s.db.getDomain('example.net').ns, [ 'ns.example.net' ]);
+			assert.equal(s.db.getDomain('example.net').ttl, 120);
+		});
+
+		test('update=true changes the settings of a served domain', async function() {
+			ok(await s.call('/domain', { domain: 'example.com', update: 'true', ttl: '120', ns: 'ns.example.net' }));
+			assert.equal(s.db.getDomain('example.com').ttl, 120);
+			ok(await s.call('/domain', { domain: 'example.com', update: 'true', minimum: '30' }));
+			let d = s.db.getDomain('example.com');
+			assert.deepEqual([ d.ttl, d.minimum, d.ns[0] ], [ 120, 30, 'ns.example.net' ]);
+			ok(await s.call('/domain', { domain: 'example.com', update: 'true', ttl: '', ns: '' }));
+			d = s.db.getDomain('example.com');
+			assert.deepEqual([ d.ttl, d.minimum, d.ns[0] ], [ 60, 30, 'example.com' ]);
+			ok(await s.call('/domain', { domain: 'example.com', update: true }, { json: true }));
+		});
+
+		test('rejects bad settings', async function() {
+			bad(await s.call('/domain', { domain: 'example.org', ns: 'not valid' }), 'Bad request (ns)');
+			bad(await s.call('/domain', { domain: 'example.org', ns: [ 'ns.example.net', 'x' ] }), 'Bad request (ns)');
+			bad(await s.call('/domain', { domain: 'example.org', admin: 'not valid' }), 'Bad request (admin)');
+			bad(await s.call('/domain', { domain: 'example.org', admin: [ 'a.b', 'c.d' ] }), 'Bad request (admin)');
+			bad(await s.call('/domain', { domain: 'example.org', ttl: 'long' }), 'Bad request (ttl)');
+			bad(await s.call('/domain', { domain: 'example.org', ttl: '-1' }), 'Bad request (ttl)');
+			bad(await s.call('/domain', { domain: 'example.org', refresh: '99999999999' }), 'Bad request (refresh)');
+			bad(await s.call('/domain', { domain: 'example.org', retry: 1.5 }, { json: true }), 'Bad request (retry)');
+			bad(await s.call('/domain', { domain: 'example.org', expiration: true }, { json: true }), 'Bad request (expiration)');
+			bad(await s.call('/domain', { domain: 'example.org', minimum: [ '1', '2' ] }), 'Bad request (minimum)');
+			bad(await s.call('/domain', { domain: 'example.com', update: 'true', admin: 'not valid' }), 'Bad request (admin)');
+			bad(await s.call('/domain', { domain: 'example.org', update: 'true', ttl: '5' }), 'Bad request (unable to update domain)');
+			bad(await s.call('/domain', { domain: 'example.com', update: 'maybe' }), 'Bad request (update)');
+			bad(await s.call('/domain', { domain: 'example.com', remove: 'true', ttl: '5' }), 'Bad request (conflicting params)');
+			bad(await s.call('/domain', { domain: 'example.com', remove: 'true', update: 'true' }), 'Bad request (conflicting params)');
+			assert.equal(s.db.stats().domains, 1);
+		});
+
 		test('rejects bad requests', async function() {
 			bad(await s.call('/domain'), 'Bad request (domain)');
 			bad(await s.call('/domain', { domain: 'not valid' }), 'Bad request (domain)');
@@ -117,14 +159,14 @@ describe('HTTP API', function() {
 			ok(await s.call('/host', { host: 'H.example.com', a: '1.2.3.4', aaaa: '2001:db8::1', txt: 'hello', mx: 'mail.example.com' }));
 			let h = await host('h.example.com');
 			assert.equal(h.name, 'H.example.com');
-			assert.deepEqual(h.data, { a: [ '1.2.3.4' ], aaaa: [ '2001:db8:0:0:0:0:0:1' ], txt: [ 'hello' ], mx: [ 'mail.example.com' ] });
+			assert.deepEqual(h.data, full({ a: [ '1.2.3.4' ], aaaa: [ '2001:db8:0:0:0:0:0:1' ], txt: [ 'hello' ], mx: [ 'mail.example.com' ] }));
 			assert.equal(h.expires, null);
 		});
 
 		test('a second call replaces all records', async function() {
 			ok(await s.call('/host', { host: 'h.example.com', a: '1.2.3.4', txt: 'hello' }));
 			ok(await s.call('/host', { host: 'h.example.com', aaaa: '2001:db8::1' }));
-			assert.deepEqual((await host('h.example.com')).data, { a: [], aaaa: [ '2001:db8:0:0:0:0:0:1' ], txt: [], mx: [] });
+			assert.deepEqual((await host('h.example.com')).data, full({ a: [], aaaa: [ '2001:db8:0:0:0:0:0:1' ], txt: [], mx: [] }));
 		});
 
 		test('merge keeps the records that are not mentioned', async function() {
@@ -190,7 +232,7 @@ describe('HTTP API', function() {
 
 		test('several values of a type can be given at once', async function() {
 			ok(await s.call('/host', { host: 'h.example.com', a: [ '1.2.3.4', '5.6.7.8' ], txt: [ 'one', 'two' ] }));
-			assert.deepEqual((await host('h.example.com')).data, { a: [ '1.2.3.4', '5.6.7.8' ], aaaa: [], txt: [ 'one', 'two' ], mx: [] });
+			assert.deepEqual((await host('h.example.com')).data, full({ a: [ '1.2.3.4', '5.6.7.8' ], aaaa: [], txt: [ 'one', 'two' ], mx: [] }));
 			ok(await s.call('/host', { host: 'j.example.com', aaaa: [ '2001:db8::1', '2001:db8::2' ] }, { json: true }));
 			assert.equal((await host('j.example.com')).data.aaaa.length, 2);
 			bad(await s.call('/host', { host: 'h.example.com', a: [ '1.2.3.4', 'bogus' ] }), 'Bad request (a)');
@@ -216,6 +258,30 @@ describe('HTTP API', function() {
 			assert.ok(Math.abs(h.expires - (Date.now() + 31536000000)) < 5000);
 		});
 
+		test('sets CNAME, NS, SRV and CAA records', async function() {
+			ok(await s.call('/host', { host: 'alias.example.com', cname: 'target.example.com' }));
+			ok(await s.call('/host', { host: 'sub.example.com', ns: [ 'ns1.example.net', 'ns2.example.net' ] }));
+			ok(await s.call('/host', { host: '_sip._tcp.example.com', srv: '10 5 5060 sip.example.com' }));
+			ok(await s.call('/host', { host: 'example.com', caa: '0 issue "letsencrypt.org"', mx: '10 mail.example.com' }));
+			assert.deepEqual((await host('alias.example.com')).data.cname, [ 'target.example.com' ]);
+			assert.deepEqual((await host('sub.example.com')).data.ns, [ 'ns1.example.net', 'ns2.example.net' ]);
+			assert.deepEqual((await host('_sip._tcp.example.com')).data.srv, [ '10 5 5060 sip.example.com' ]);
+			assert.deepEqual((await host('example.com')).data.caa, [ '0 issue letsencrypt.org' ]);
+			assert.deepEqual((await host('example.com')).data.mx, [ '10 mail.example.com' ]);
+			bad(await s.call('/host', { host: 'h.example.com', cname: 'not valid' }), 'Bad request (cname)');
+			bad(await s.call('/host', { host: 'h.example.com', srv: 'nope' }), 'Bad request (srv)');
+			bad(await s.call('/host', { host: 'h.example.com', caa: 'nope' }), 'Bad request (caa)');
+			bad(await s.call('/host', { host: 'h.example.com', ns: 'nope' }), 'Bad request (ns)');
+			bad(await s.call('/host', { host: 'h.example.com', cname: 'x.example.com', a: '1.2.3.4' }), 'Bad request (unable to add/update host)');
+			bad(await s.call('/host', { host: 'alias.example.com', cname: 'x.example.com', remove: 'true' }), 'Bad request (conflicting params)');
+		});
+
+		test('a host name may end with a dot and have underscore labels', async function() {
+			ok(await s.call('/host', { host: 'selector._domainkey.example.com.', txt: 'v=DKIM1' }));
+			assert.equal((await host('selector._domainkey.example.com')).name, 'selector._domainkey.example.com');
+			ok(await s.call('/host', { host: 'selector._domainkey.example.com', remove: 'true' }));
+		});
+
 		test('remove conflicts with mx as with the other records', async function() {
 			bad(await s.call('/host', { host: 'h.example.com', mx: 'mail.example.com', remove: 'true' }), 'Bad request (conflicting params)');
 		});
@@ -233,12 +299,29 @@ describe('HTTP API', function() {
 			ok(await c('add', 'txt', 'two'));
 			ok(await c('add', 'mx', 'Mail.example.com'));
 			assert.deepEqual((await host('h.example.com')).data,
-							 { a: [ '1.2.3.4', '5.6.7.8' ], aaaa: [ '2001:db8:0:0:0:0:0:1' ], txt: [ 'one', 'two' ], mx: [ 'mail.example.com' ] });
+							 full({ a: [ '1.2.3.4', '5.6.7.8' ], aaaa: [ '2001:db8:0:0:0:0:0:1' ], txt: [ 'one', 'two' ], mx: [ 'mail.example.com' ] }));
 			ok(await c('remove', 'a', '1.2.3.4'));
 			ok(await c('set', 'txt', 'three'));
 			ok(await s.call('/record', { host: 'h.example.com', command: 'clear', type: 'mx' }));
 			assert.deepEqual((await host('h.example.com')).data,
-							 { a: [ '5.6.7.8' ], aaaa: [ '2001:db8:0:0:0:0:0:1' ], txt: [ 'three' ], mx: [] });
+							 full({ a: [ '5.6.7.8' ], aaaa: [ '2001:db8:0:0:0:0:0:1' ], txt: [ 'three' ], mx: [] }));
+		});
+
+		test('works for every record type', async function() {
+			let c = (host, command, type, value) => s.call('/record', { host, command, type, value });
+			ok(await c('_sip._tcp.example.com', 'add', 'srv', '10 5 5060 sip.example.com'));
+			ok(await c('_sip._tcp.example.com', 'add', 'srv', '20 5 5060 sip2.example.com'));
+			ok(await c('_sip._tcp.example.com', 'remove', 'srv', '10  5  5060  SIP.example.com'));
+			assert.deepEqual((await host('_sip._tcp.example.com')).data.srv, [ '20 5 5060 sip2.example.com' ]);
+			ok(await c('example.com', 'add', 'caa', '0 issue letsencrypt.org'));
+			ok(await c('alias.example.com', 'set', 'cname', 'a.example.com'));
+			ok(await c('alias.example.com', 'set', 'cname', 'b.example.com'));
+			assert.deepEqual((await host('alias.example.com')).data.cname, [ 'b.example.com' ]);
+			bad(await c('alias.example.com', 'add', 'cname', 'c.example.com'), 'Bad request (unable to add/update host)');
+			bad(await c('alias.example.com', 'add', 'a', '1.2.3.4'), 'Bad request (unable to add/update host)');
+			ok(await c('sub.example.com', 'add', 'ns', 'ns.example.net'));
+			ok(await c('mail.example.com', 'add', 'mx', '10 mx.example.com'));
+			assert.deepEqual((await host('mail.example.com')).data.mx, [ '10 mx.example.com' ]);
 		});
 
 		test('creates the host when it does not exist', async function() {
@@ -249,7 +332,7 @@ describe('HTTP API', function() {
 		test('rejects bad requests', async function() {
 			bad(await s.call('/record', { command: 'add', type: 'a', value: '1.2.3.4' }), 'Bad request (host)');
 			bad(await s.call('/record', { host: 'h.example.com', command: 'nope', type: 'a', value: '1.2.3.4' }), 'Bad request (command)');
-			bad(await s.call('/record', { host: 'h.example.com', command: 'add', type: 'cname', value: 'x.example.com' }), 'Bad request (type)');
+			bad(await s.call('/record', { host: 'h.example.com', command: 'add', type: 'bogus', value: 'x.example.com' }), 'Bad request (type)');
 			bad(await s.call('/record', { host: 'h.example.org', command: 'add', type: 'a', value: '1.2.3.4' }), 'Bad request (no matching domain)');
 		});
 
@@ -297,7 +380,7 @@ describe('HTTP API', function() {
 			ok(await s.call('/host', { host: 'h.example.com', a: '1.2.3.4' }));
 			let d = ok(await s.call('/stats'));
 			assert.equal(d.authFailures, 0);
-			assert.deepEqual(Object.keys(d.dns).sort(), [ 'answered', 'dropped', 'empty', 'nxdomain', 'queries' ]);
+			assert.deepEqual(Object.keys(d.dns).sort(), [ 'answered', 'dropped', 'empty', 'nxdomain', 'queries', 'refused' ]);
 			assert.deepEqual(Object.keys(d.dns.dropped).sort(), [ 'error', 'invalid', 'notQuery', 'outOfZone', 'rateLimited' ]);
 			assert.equal(d.domains, 1);
 			assert.equal(d.hosts, 1);

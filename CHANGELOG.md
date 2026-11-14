@@ -34,6 +34,22 @@ Work towards 2.0.0. Nothing in this section has been published.
   `options.serial` argument for `NameDB.addDomain()`, and `ready` and
   `error` events on `ApiServer`.
 - The test suite enforces a coverage threshold.
+- Record types CNAME, SRV and CAA, and NS records on a host, which
+  delegate the host and everything under it and are answered with a
+  referral. A query for a name that has a CNAME gets the CNAME and, when
+  the target is served too, the records of the target.
+- An MX value can carry a priority: `10 mail.example.com`.
+- Settings per domain: name servers (`ns`), administrator (`admin`), the
+  time to live of the records (`ttl`) and the SOA timers (`refresh`,
+  `retry`, `expiration`, `minimum`). They are given to `/domain` when the
+  domain is added, changed with `update=true`, and saved in the
+  configuration file. In the library: the options of
+  `NameDB.addDomain()`, `NameDB.setDomainOptions()`, `NameDB.getDomain()`
+  and the `updatedomain` event.
+- The listen address options take a comma separated list of addresses,
+  IPv4 and IPv6. `NameServer` accepts a list or an array.
+- `--dns-refuse-out-of-zone` (`refuseOutOfZone` in `NameServer`) answers
+  REFUSED to queries for names outside the served domains.
 
 ### Changed
 
@@ -55,6 +71,16 @@ Work towards 2.0.0. Nothing in this section has been published.
 - Command line usage errors are printed to the standard error.
 
 - Node.js 24 or newer is required.
+- Answers have the AA flag set.
+- A query for a name that does not exist in a served domain is answered
+  with NXDOMAIN. A name with hosts below it exists.
+- Answers without data, NXDOMAIN included, carry the SOA record of the
+  domain in the authority section, so that resolvers can cache them.
+- A client that uses EDNS gets an OPT record in the answer.
+- An underscore is accepted at the start of every label of a name, not
+  only the first, and a name may end with a dot.
+- `/dump` and the configuration file have the new record types in the
+  `data` of every host, as empty arrays when unused.
 - A query for a name inside a served domain is answered whatever the query
   type is, with an empty answer when there is no data. Types that the
   server did not know, such as HTTPS (65), used to get no answer at all,

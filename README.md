@@ -15,12 +15,13 @@ Options:
             --init-config-file               Initialize configuration file and exit
             --config-write-interval=<arg>    Shortest time in seconds between writes of configuration file
             --udp                            Enable UDP server
-            --udp-listen-address=<arg>       Listen address for UDP server
+            --udp-listen-address=<arg>       Listen address(es) for UDP server, comma separated
             --udp-listen-port=<arg>          Listen port for UDP server
             --tcp                            Enable TCP server
-            --tcp-listen-address=<arg>       Listen address for TCP server
+            --tcp-listen-address=<arg>       Listen address(es) for TCP server, comma separated
             --tcp-listen-port=<arg>          Listen port for TCP server
             --dns-rate-limit=<arg>           Queries per second answered to one source, 0 for no limit
+            --dns-refuse-out-of-zone         Answer REFUSED to queries outside of served domains instead of ignoring them
             --http-api                       Enable HTTP-API server
             --http-api-user=<arg>            Required username for HTTP API server
             --http-api-password=<arg>        Required passwordname for HTTP API server
@@ -56,6 +57,31 @@ the command line is visible in the process list;
 `--http-api-password-file` reads it from the first line of a file
 instead.
 
+### What the DNS server answers
+
+The server is authoritative for the domains it serves and answers
+nothing else.
+
+- A name that has records of the type asked: the records, with the AA
+  flag set.
+- A name that exists but has no records of the type asked, whatever the
+  type is: an empty answer with the SOA record of the domain in the
+  authority section.
+- A name that does not exist in a served domain: NXDOMAIN, also with the
+  SOA record.
+- A name that has a CNAME record: the CNAME, followed by the records of
+  the target if the target is served here as well.
+- A name that is delegated with NS records, and every name below it: a
+  referral to those name servers.
+- A name outside the served domains: no answer at all, or REFUSED with
+  `--dns-refuse-out-of-zone`.
+- Anything that is not a plain query with one question: no answer.
+
+Answers that do not fit in a UDP packet are truncated, and the client
+retries over TCP, so enable both `--udp` and `--tcp`. The listen address
+options take several addresses separated by commas, for example
+`--udp-listen-address=0.0.0.0,::`.
+
 ### Rate limiting
 
 A single source address (a /64 prefix for IPv6) gets at most
@@ -83,6 +109,36 @@ Fails if the domain already exists or if there is already a domain,
 which is either a parent domain or a subdomain of the domain that is
 added.
 
+A domain has settings that can be given when it is added:
+
+| Parameter | Meaning | Default |
+| --- | --- | --- |
+| `ns` | Name servers of the domain; repeat the parameter for several. The first one is the primary server in the SOA record. | the domain itself |
+| `admin` | Mail address of the administrator, as `user@example.com` or in the SOA form `user.example.com` | `postmaster` at the domain |
+| `ttl` | Time to live of the records of the domain, in seconds | 60 |
+| `refresh`, `retry`, `expiration`, `minimum` | The timers of the SOA record, in seconds | 300, 3, 10, 10 |
+
+```
+curl 'http://TR-DDNS-ADDR/domain?domain=test-domain.tld&ns=ns1.test-domain.tld&ns=ns2.test-domain.tld&admin=hostmaster@test-domain.tld&ttl=300'
+```
+
+By default the domain is its own name server, so for the delegation from
+the parent zone to work, either give the domain an A or AAAA record
+(`/host?host=test-domain.tld&a=...`) or set `ns` to the real names of the
+servers. `minimum` is also how long resolvers remember that a name does
+not exist.
+
+### Change the Settings of a Domain
+
+With `update=true` the call changes the settings of a domain that is
+already served. Only the settings given are changed, and an empty value
+brings back the default.
+
+```
+curl 'http://TR-DDNS-ADDR/domain?domain=test-domain.tld&update=true&ttl=120'
+curl 'http://TR-DDNS-ADDR/domain?domain=test-domain.tld&update=true&ns='
+```
+
 ### Remove Domain
 
 Removes also all host records under that domain.
@@ -93,9 +149,23 @@ curl 'http://TR-DDNS-ADDR/domain?domain=test-domain.tld&remove=true'
 
 ### Add or Update Host
 
-Supported records are A, AAAA, MX, and TXT. A record parameter can be
-repeated (or be an array in a JSON payload) to set several values of the
-same type.
+A record parameter can be repeated (or be an array in a JSON payload) to
+set several values of the same type. The supported records are
+
+| Parameter | Value | Example |
+| --- | --- | --- |
+| `a` | IPv4 address | `1.2.3.4` |
+| `aaaa` | IPv6 address | `2001:db8::1` |
+| `txt` | Text, at most 4096 bytes | `v=spf1 -all` |
+| `mx` | Mail server, optionally with a priority in front. Without one, the priority is the position of the value, starting from 1. | `10 mail.example.com` |
+| `cname` | Target of an alias. A host that has a CNAME has no other records, and the top of a domain cannot have one. | `www.example.com` |
+| `ns` | Name server that the host and everything under it is delegated to. Not for the top of a domain; use the `ns` setting of the domain. | `ns1.example.net` |
+| `srv` | `priority weight port target` | `10 5 5060 sip.example.com` |
+| `caa` | `flags tag value` | `0 issue letsencrypt.org` |
+
+A host name consists of labels of letters, digits and hyphens. A label
+may start with an underscore (`_acme-challenge`, `selector._domainkey`,
+`_sip._tcp`), and the name may end with a dot.
 
 ```
 curl 'http://TR-DDNS-ADDR/host?host=host1.test-domain.tld&a=1.2.3.4'
@@ -142,7 +212,7 @@ A host can have several records of each type. The `record` call changes
 one type of one host and leaves the rest, including the lifetime of the
 host, as it is. `command` is `add`, `set` (replace all values of the
 type with this one), `remove` or `clear` (remove all values of the type;
-no `value` needed). `type` is `a`, `aaaa`, `txt` or `mx`.
+no `value` needed). `type` is one of the record types above.
 
 ```
 curl 'http://TR-DDNS-ADDR/record?host=host1.test-domain.tld&command=add&type=a&value=5.6.7.8'

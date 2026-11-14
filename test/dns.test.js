@@ -46,9 +46,9 @@ describe('DNS server', function() {
 
 			test('answers TXT', async function() {
 				let r = await s.query('h.example.com', TYPE.TXT, { tcp });
-				assert.deepEqual(r.answers.map((a) => a.data).sort(), [ 'hello', 'world' ]);
+				assert.deepEqual(r.answers.map((a) => a.data).sort(), [ [ 'hello' ], [ 'world' ] ]);
 				r = await s.query('_acme-challenge.example.com', TYPE.TXT, { tcp });
-				assert.deepEqual(r.answers.map((a) => a.data), [ 'token' ]);
+				assert.deepEqual(r.answers.map((a) => a.data), [ [ 'token' ] ]);
 			});
 
 			test('answers MX', async function() {
@@ -59,7 +59,8 @@ describe('DNS server', function() {
 			test('answers a TXT value longer than 255 bytes', async function() {
 				let r = await s.query('long.example.com', TYPE.TXT, { tcp, edns: true });
 				assert.equal(r.answers.length, 1);
-				assert.equal(r.answers[0].data, 'x'.repeat(300));
+				// One record of two character strings, the first one full.
+				assert.deepEqual(r.answers[0].data, [ 'x'.repeat(255), 'x'.repeat(45) ]);
 			});
 
 			test('answers SOA and NS at the apex', async function() {

@@ -142,7 +142,7 @@ describe('server started from the command line', function() {
 		let r = await dnsQuery(s.dnsPort, 'h.example.com', TYPE.A);
 		assert.deepEqual(r.answers.map((a) => a.address).sort(), [ '1.2.3.4', '5.6.7.8' ]);
 		r = await dnsQuery(s.dnsPort, 'h.example.com', TYPE.TXT, { tcp: true });
-		assert.deepEqual(r.answers.map((a) => a.data), [ 'hello' ]);
+		assert.deepEqual(r.answers.map((a) => a.data), [ [ 'hello' ] ]);
 		let d = await apiCall(s.base, '/dump');
 		assert.equal(d.body.data.hosts.length, 1);
 	});

@@ -76,6 +76,12 @@ Options:
             --tcp-listen-port=<arg>          Listen port for TCP server
             --dns-rate-limit=<arg>           Queries per second answered to one source, 0 for no limit
             --dns-refuse-out-of-zone         Answer REFUSED to queries outside of served domains instead of ignoring them
+            --doh                            Enable DNS-over-HTTP server for a TLS proxy in front (plain HTTP, /dns-query)
+            --doh-listen-address=<arg>       Listen address for DoH server
+            --doh-listen-port=<arg>          Listen port for DoH server
+            --doh-socket=<arg>               Unix domain socket for DoH server instead of address and port
+            --doh-socket-mode=<arg>          Permissions of the DoH socket in octal
+            --doh-trusted-proxy-hops=<arg>   Number of trusted proxies in front of DoH server adding X-Forwarded-For
             --http-api                       Enable HTTP-API server
             --http-api-user=<arg>            Required username for HTTP API server
             --http-api-password=<arg>        Required password for HTTP API server

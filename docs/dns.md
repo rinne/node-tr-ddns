@@ -119,6 +119,73 @@ the host is removed from the server.
 - Several queries can be sent on one TCP connection. An idle connection
   is closed after ten seconds.
 
+## DNS over HTTP
+
+With `--doh` the server also answers queries sent over HTTP as in
+RFC 8484, at the path `/dns-query`:
+
+- GET with the query in the `dns` parameter as base64url, or
+- POST with the query as the body and
+  `Content-Type: application/dns-message`.
+
+The response has the DNS message as its body, with the same content
+type, and a `Cache-Control` header that allows caching for as long as
+the record in the answer that expires first.
+
+```
+curl -s -H 'Content-Type: application/dns-message' --data-binary @query.bin http://127.0.0.1:8053/dns-query
+```
+
+The listener speaks plain HTTP. Clients require HTTPS for DNS over
+HTTP, so it is meant to sit behind a reverse proxy that terminates TLS
+and forwards `/dns-query` to it; see
+[deployment.md](deployment.md#dns-over-https-through-the-proxy). It is a
+listener of its own and serves nothing but `/dns-query`.
+
+The answers are those of the DNS port, with two differences that follow
+from HTTP always needing a response:
+
+| Query | DNS port | DNS over HTTP |
+| --- | --- | --- |
+| A name outside the served domains | No response. | A DNS response with the code REFUSED. |
+| Not a query, not exactly one question, a class other than IN, or bytes that are not a DNS message | No response. | HTTP 400. |
+| A source over the rate limit | No response. | HTTP 429. |
+
+An answer is never truncated, whatever its size.
+
+| HTTP status | Meaning |
+| --- | --- |
+| 200 | A DNS response, which may itself say NXDOMAIN or REFUSED. |
+| 400 | No usable query in the request. |
+| 404 | A path other than `/dns-query`. |
+| 405 | A method other than GET and POST. |
+| 413 | A body larger than a DNS message can be. |
+| 415 | A POST whose content type is not `application/dns-message`. |
+| 429 | The source is over its rate limit. |
+
+Queries over HTTP count for the same rate limit as queries on the DNS
+port and appear in the same `dns` counters of `/stats`; `doh` there
+counts the HTTP requests.
+
+### The address of the client
+
+Behind a proxy every connection comes from the proxy, so the address
+that the rate limit counts must come from the `X-Forwarded-For` header,
+and only as far as the header can be trusted.
+`--doh-trusted-proxy-hops=<n>` tells how many proxies in front add the
+address of their client to the header:
+
+- With 0, the default, the header is ignored and the client is the peer
+  of the connection. Behind a proxy all clients then share one limit.
+- With n, the client is the n-th address from the right in the header:
+  the one that the outermost trusted proxy saw. Addresses further left
+  were sent by the client itself and are never used.
+- If the header is missing, has fewer than n addresses, or does not have
+  an address in that place, the peer of the connection is used.
+
+Connections through a Unix socket have no peer address and count as one
+source.
+
 ## Rate limiting
 
 Each source address gets at most `--dns-rate-limit` queries answered per

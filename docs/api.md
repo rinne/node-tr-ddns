@@ -293,7 +293,15 @@ curl 'http://127.0.0.1:8080/stats'
 | `dns.dropped.rateLimited` | Ignored: the source was over its rate limit. |
 | `dns.dropped.error` | Ignored: an internal error while answering. |
 
-`dns` is present when the DNS server is enabled.
+| `doh.requests` | HTTP requests received by the DNS over HTTP listener. |
+| `doh.answered` | Of those, answered with a DNS response. |
+| `doh.badRequest` | Refused: no usable query, a wrong method or content type, a body too large. |
+| `doh.notFound` | Refused: a path other than `/dns-query`. |
+| `doh.rateLimited` | Refused with 429: the source was over its rate limit. |
+| `doh.errors` | Failed with 500. |
+
+`dns` is present when DNS is served in any way, and counts queries from
+all of them: UDP, TCP and HTTP. `doh` is present with `--doh`.
 
 ## `/flush`
 

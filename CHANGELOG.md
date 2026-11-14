@@ -19,8 +19,22 @@ Every version published to npm, newest first.
   dump, stats and flush, with an exit status that scripts can use and a
   `wait` command for startup scripts.
 
+### DNS
+
+- DNS over HTTP as in RFC 8484, with `--doh`: `/dns-query` in plain HTTP
+  on a listener of its own, for a reverse proxy that does TLS. It
+  listens on `127.0.0.1:8053` or on a Unix socket (`--doh-socket`), and
+  answers what the DNS port answers; where the DNS port stays silent it
+  refuses the query or answers with an HTTP error.
+  `--doh-trusted-proxy-hops` tells how far `X-Forwarded-For` is trusted
+  for the address that the rate limit counts.
+- The rate limit counts each second from the first query in it, without
+  a timer.
+
 ### API
 
+- `/stats` has `doh` with the counters of the DNS over HTTP listener, and
+  `dns` whenever DNS is served in any way.
 - `ensure=true` makes two calls repeatable: `/domain` then adds the
   domain only if it is not served and otherwise applies the settings
   given, and `/host` with `remove=true` succeeds also when there is no
@@ -28,6 +42,7 @@ Every version published to npm, newest first.
 
 ### Library
 
+- `DohServer`: DNS over HTTP.
 - `DnsCore`: answering DNS queries without a transport. `answer()` takes
   a parsed query and its source and returns a response packet or the
   reason why there is none. `NameServer` is now a layer on top of it and

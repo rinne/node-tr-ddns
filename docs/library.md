@@ -5,7 +5,7 @@ another program. Everything is exported from the main module, and type
 declarations are included.
 
 ```js
-const { NameDB, NameServer, DnsCore, ApiServer, ApiCore, ControlServer, ConfigStore, log } = require('tr-ddns');
+const { NameDB, NameServer, DnsCore, DohServer, ApiServer, ApiCore, ControlServer, ConfigStore, log } = require('tr-ddns');
 ```
 
 The modules can also be required one by one, as before version 2.0.0:
@@ -168,6 +168,36 @@ core share them.
 | `countInvalid()` | Counts a packet that the transport could not parse. |
 | `stats()` | The counters described under `dns` in [api.md](api.md#stats). |
 | `DnsCore.DEFAULT_RATE_LIMIT` | 500. |
+
+## DohServer
+
+DNS over HTTP as in RFC 8484, in plain HTTP; see
+[dns.md](dns.md#dns-over-http). It starts listening when it is created.
+
+| Option | Description | Default |
+| --- | --- | --- |
+| `core` | A `DnsCore` to answer with, shared with other transports. | one of its own |
+| `nameDB` | The database to answer from. Required unless `core` is given. | |
+| `address` | | `127.0.0.1` |
+| `port` | | 8053 |
+| `socket` | A Unix domain socket to listen on instead of an address and a port. | |
+| `socketMode` | The permissions of the socket file, a number or an octal string. | `0666` |
+| `trustedProxyHops` | How many proxies in front add to `X-Forwarded-For` and are trusted. | 0 |
+| `rateLimit` | For a core of its own; see `DnsCore`. | 500 |
+| `debug` | Log requests. | off |
+
+| Member | Description |
+| --- | --- |
+| `stats()` | `{ requests, answered, badRequest, notFound, rateLimited, errors }`. |
+| `close()` | Stops listening. Returns a promise. |
+
+| Event | When |
+| --- | --- |
+| `ready` | The server is listening. |
+| `error` | The listener could not be started; the argument is the error. |
+
+To give DNS over HTTP the same rate limit and counters as the DNS port,
+create one `DnsCore` and give it to both `NameServer` and `DohServer`.
 
 ## ApiServer
 

@@ -7,6 +7,8 @@ const ipaddr = require('ipaddr.js');
 
 const NameDB = require('../lib/namedb');
 const NameServer = require('../lib/nameserver');
+const DnsCore = require('../lib/dnscore');
+const DohServer = require('../lib/dohserver');
 const ApiServer = require('../lib/apiserver');
 const ApiCore = require('../lib/api');
 const ControlServer = require('../lib/controlserver');
@@ -96,6 +98,38 @@ function commandLineOptsParse() {
 				  { longName: 'dns-refuse-out-of-zone',
 					description: 'Answer REFUSED to queries outside of served domains instead of ignoring them',
 					environment: 'TR_DDNS_OPT_DNS_REFUSE_OUT_OF_ZONE' },
+				  { longName: 'doh',
+					description: 'Enable DNS-over-HTTP server for a TLS proxy in front (plain HTTP, /dns-query)',
+					environment: 'TR_DDNS_OPT_DOH' },
+				  { longName: 'doh-listen-address',
+					description: 'Listen address for DoH server',
+					hasArg: true,
+					optArgCb: validIpAddrCb,
+					environment: 'TR_DDNS_OPT_DOH_LISTEN_ADDRESS',
+					defaultValue: '127.0.0.1' },
+				  { longName: 'doh-listen-port',
+					description: 'Listen port for DoH server',
+					hasArg: true,
+					optArgCb: ou.integerWithLimitsCbFactory(1, 65535),
+					environment: 'TR_DDNS_OPT_DOH_LISTEN_PORT',
+					defaultValue: '8053' },
+				  { longName: 'doh-socket',
+					description: 'Unix domain socket for DoH server instead of address and port',
+					hasArg: true,
+					optArgCb: ((x) => ((x === '') ? undefined : x)),
+					environment: 'TR_DDNS_OPT_DOH_SOCKET' },
+				  { longName: 'doh-socket-mode',
+					description: 'Permissions of the DoH socket in octal',
+					hasArg: true,
+					optArgCb: ((x) => (/^[0-7]{3,4}$/.test(x) ? x : undefined)),
+					environment: 'TR_DDNS_OPT_DOH_SOCKET_MODE',
+					defaultValue: '666' },
+				  { longName: 'doh-trusted-proxy-hops',
+					description: 'Number of trusted proxies in front of DoH server adding X-Forwarded-For',
+					hasArg: true,
+					optArgCb: ou.integerWithLimitsCbFactory(0, 32),
+					environment: 'TR_DDNS_OPT_DOH_TRUSTED_PROXY_HOPS',
+					defaultValue: '0' },
 				  { longName: 'http-api',
 					description: 'Enable HTTP-API server',
 					environment: 'TR_DDNS_OPT_HTTP_API' },
@@ -249,18 +283,25 @@ async function startStore(store, opt) {
 		}
 	}
 
+	// The answers are the same whichever way the query arrives, and so
+	// are the rate limit and the counters.
+	const dnsCore = ((opt.value('udp') || opt.value('tcp') || opt.value('doh')) ?
+					 new DnsCore({ nameDB: db,
+								   rateLimit: opt.value('dns-rate-limit'),
+								   refuseOutOfZone: opt.value('dns-refuse-out-of-zone'),
+								   debug: debug }) :
+					 undefined);
+
 	const server = ((opt.value('udp') || opt.value('tcp')) ?
 					new NameServer({
+						core: dnsCore,
 						debug: debug,
 						tcp: opt.value('tcp'),
 						tcpListenPort: opt.value('tcp-listen-port'),
 						tcpListenAddress: opt.value('tcp-listen-address'),
 						udp: opt.value('udp'),
 						udpListenPort: opt.value('udp-listen-port'),
-						udpListenAddress: opt.value('udp-listen-address'),
-						rateLimit: opt.value('dns-rate-limit'),
-						refuseOutOfZone: opt.value('dns-refuse-out-of-zone'),
-						nameDB: db
+						udpListenAddress: opt.value('udp-listen-address')
 					}) :
 					undefined);
 
@@ -269,8 +310,22 @@ async function startStore(store, opt) {
 		server.on('error', function(e) { fatal('Unable to start DNS server (' + (e?.code ?? '?') + ')'); });
 	}
 
+	const doh = (opt.value('doh') ?
+				 new DohServer({ core: dnsCore,
+								 address: opt.value('doh-listen-address'),
+								 port: opt.value('doh-listen-port'),
+								 socket: opt.value('doh-socket'),
+								 socketMode: opt.value('doh-socket-mode'),
+								 trustedProxyHops: opt.value('doh-trusted-proxy-hops'),
+								 debug: debug }) :
+				 undefined);
+
+	if (doh) {
+		doh.on('error', function(e) { fatal('Unable to start DoH server (' + (e?.code ?? '?') + ')'); });
+	}
+
 	// The API is the same whichever way it is reached.
-	const apiCore = new ApiCore({ nameDB: db, nameServer: server, debug: debug });
+	const apiCore = new ApiCore({ nameDB: db, nameServer: dnsCore, dohServer: doh, debug: debug });
 
 	const api = (opt.value('http-api') ?
 				 new ApiServer({ api: apiCore,
@@ -321,7 +376,7 @@ async function startStore(store, opt) {
 				}
 				store.close();
 			}
-			await Promise.allSettled([ api, control, server ].map((x) => (x ? x.close() : undefined)));
+			await Promise.allSettled([ api, control, doh, server ].map((x) => (x ? x.close() : undefined)));
 			db.close();
 			process.exit(code);
 		})();

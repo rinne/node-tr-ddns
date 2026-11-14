@@ -150,6 +150,69 @@ TR_DDNS_OPT_HTTP_API_USER=admin
 TR_DDNS_OPT_HTTP_API_PASSWORD_FILE=/etc/tr-ddns/password
 ```
 
+## Inside a container with a web server
+
+`tr-ddns` can run next to another server in the same container and be
+set up by it, with nothing but the DNS port published. The pieces:
+
+- **No network API.** Leave `--http-api` off and use
+  `--control-socket`. The socket is a file inside the container, and
+  [`tr-ddns-ctl`](ctl.md) or `curl --unix-socket` reaches the API
+  through it.
+- **Set up at startup.** The startup of the container starts `tr-ddns`,
+  waits for it and says what should be served. `domain ensure` makes the
+  script safe to run on every start.
+- **With or without a file.** With a configuration file on a volume, the
+  hosts survive a restart. With `--memory-only` nothing is kept, and the
+  startup script is the single source of what is served.
+
+```
+export TR_DDNS_OPT_CONTROL_SOCKET=/run/tr-ddns/control.sock
+
+mkdir -p /run/tr-ddns
+tr-ddns --memory-only --udp --tcp &
+
+tr-ddns-ctl --timeout=30 wait || exit 1
+for domain in $DYNAMIC_DOMAINS; do
+    tr-ddns-ctl domain ensure "$domain" ns="$NAME_SERVER" || exit 1
+done
+```
+
+Publish port 53 for both UDP and TCP (`-p 53:53/udp -p 53:53/tcp`). If
+the two servers run as different users, give the socket to a group they
+share with `--control-socket-mode=660`.
+
+### DNS over HTTPS through the proxy
+
+With `--doh`, `tr-ddns` answers DNS over HTTP on `127.0.0.1:8053`, or on
+a Unix socket with `--doh-socket`. The web server terminates TLS and
+forwards one path to it. For nginx:
+
+```
+location = /dns-query {
+    proxy_pass http://127.0.0.1:8053;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+}
+```
+
+or, with `--doh-socket=/run/tr-ddns/doh.sock`:
+
+```
+location = /dns-query {
+    proxy_pass http://unix:/run/tr-ddns/doh.sock:;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+}
+```
+
+Start `tr-ddns` with `--doh-trusted-proxy-hops=1` in this arrangement,
+so that the rate limit counts each client and not the proxy. If another
+proxy or a load balancer sits in front of nginx and adds to
+`X-Forwarded-For` as well, the number is 2. See
+[dns.md](dns.md#the-address-of-the-client).
+
+Only `/dns-query` is forwarded, and the listener behind it serves only
+that, so the API cannot be reached this way even by mistake.
+
 ## Recipes
 
 ### A home address that changes

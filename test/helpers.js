@@ -223,6 +223,50 @@ function socketCall(socketPath, urlPath, params, opts) {
 	});
 }
 
+// A DNS query over HTTP. where is { port } or { socket }. Resolves to
+// { status, headers, packet, text }; packet is the parsed response
+// when the server sent a DNS message. opts.method is GET (the default)
+// or POST; opts.message replaces the query built from name and type.
+function dohQuery(where, name, type, opts) {
+	let http = require('node:http');
+	let message = opts?.message ?? ((name === undefined) ? Buffer.alloc(0) : buildQuery(name, type, opts));
+	let method = opts?.method ?? 'GET';
+	let headers = Object.assign({}, opts?.headers);
+	let urlPath = opts?.path ?? '/dns-query';
+	let body;
+	if (method === 'GET') {
+		if (opts?.path === undefined) {
+			urlPath += '?dns=' + message.toString('base64url');
+		}
+	} else {
+		if (headers['Content-Type'] === undefined) {
+			headers['Content-Type'] = 'application/dns-message';
+		}
+		headers['Content-Length'] = message.length;
+		body = message;
+	}
+	let target = (where.socket !== undefined) ? { socketPath: where.socket } : { host: where.address ?? '127.0.0.1', port: where.port };
+	return new Promise(function(resolve, reject) {
+		let req = http.request(Object.assign({ path: urlPath, method: method, headers: headers, agent: false }, target), function(res) {
+			let chunks = [];
+			res.on('data', (d) => chunks.push(d));
+			res.on('end', function() {
+				let raw = Buffer.concat(chunks);
+				let packet;
+				if (res.headers['content-type'] === 'application/dns-message') {
+					packet = Packet.parse(raw);
+				}
+				resolve({ status: res.statusCode, headers: res.headers, packet: packet, text: packet ? undefined : raw.toString('utf8'), raw: raw });
+			});
+		});
+		req.on('error', reject);
+		if (body !== undefined) {
+			req.write(body);
+		}
+		req.end();
+	});
+}
+
 // Runs fn with console.log, console.warn and console.error captured.
 // Returns the captured lines.
 async function captureConsole(fn) {
@@ -384,5 +428,5 @@ module.exports = {
 	ROOT, LIB, CLI, LAUNCHER, lib, Packet, TYPE, RCODE,
 	freePort, freeTcpPort, freeUdpPort,
 	buildQuery, udpExchange, tcpExchange, dnsQuery,
-	apiCall, socketCall, captureConsole, full, startStack, startOfRatePeriod, tmpDir, runCli, startCli, waitFor
+	apiCall, socketCall, dohQuery, captureConsole, full, startStack, startOfRatePeriod, tmpDir, runCli, startCli, waitFor
 };

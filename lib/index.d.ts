@@ -249,6 +249,50 @@ export class NameServer extends EventEmitter {
 	close(): Promise<void>;
 }
 
+export interface DohServerOptions {
+	/** A DNS core to share with other transports. */
+	core?: DnsCore;
+	/** Required unless core is given. */
+	nameDB?: NameDB;
+	/** The default is 127.0.0.1. */
+	address?: string;
+	/** The default is 8053. */
+	port?: number;
+	/** A Unix domain socket to listen on instead of address and port. */
+	socket?: string;
+	/** Permissions of the socket file, a number or an octal string. The default is 0666. */
+	socketMode?: number | string;
+	/**
+	 * How many proxies in front add to X-Forwarded-For and are trusted.
+	 * The default is 0: the header is ignored.
+	 */
+	trustedProxyHops?: number;
+	/** For a core of its own. */
+	rateLimit?: number | false;
+	debug?: boolean;
+}
+
+export interface DohServerStats {
+	requests: number;
+	answered: number;
+	badRequest: number;
+	notFound: number;
+	rateLimited: number;
+	errors: number;
+}
+
+/**
+ * DNS over HTTP (RFC 8484) in plain HTTP, for a TLS proxy in front.
+ *
+ * Events: 'ready' when listening, 'error' when the listener cannot be
+ * started.
+ */
+export class DohServer extends EventEmitter {
+	constructor(config: DohServerOptions);
+	stats(): DohServerStats;
+	close(): Promise<void>;
+}
+
 export interface ApiCoreOptions {
 	nameDB: NameDB;
 	/** Adds the counters of the name server to /stats as dns. */

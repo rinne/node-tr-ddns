@@ -31,7 +31,13 @@ function commandLineOptsParse() {
 			.opts([].concat(
 				[ { longName: 'debug',
 					description: 'Enable debug messages',
-					environment: 'TR_DDNS_OPT_DEBUG' } ],
+					environment: 'TR_DDNS_OPT_DEBUG' },
+				  { longName: 'log-level',
+					description: 'Log level: none, error, warn, info or debug',
+					hasArg: true,
+					optArgCb: ou.allowListCbFactory(log.LEVELS),
+					environment: 'TR_DDNS_OPT_LOG_LEVEL',
+					defaultValue: 'info' } ],
 				[ { longName: 'config-file',
 					shortName: 'c',
 					description: 'Configuration file',
@@ -157,7 +163,9 @@ function basicAuthCookie(opt) {
 
 (async function() {
 	const opt = commandLineOptsParse();
-	const debug = opt.value('debug');
+	// --debug is the same as --log-level=debug.
+	const debug = (opt.value('debug') || (opt.value('log-level') === 'debug')) ? true : false;
+	log.setLevel(debug ? 'debug' : opt.value('log-level'));
 	const basicAuth = basicAuthCookie(opt);
 
 	const db = new NameDB({ debug: debug });
@@ -176,7 +184,7 @@ function basicAuthCookie(opt) {
 
 	try {
 		for (let warning of (await store.load())) {
-			console.warn(warning);
+			log.warn(warning);
 		}
 	} catch (e) {
 		switch (e.code) {
@@ -204,7 +212,7 @@ function basicAuthCookie(opt) {
 
 	if (debug) {
 		for (let event of [ 'add', 'update', 'remove', 'flush', 'removedomain', 'adddomain', 'updatedomain' ]) {
-			db.on(event, function(name) { log('EVENT:', event + '(' + (name ? name : '') + ')'); });
+			db.on(event, function(name) { log.debug('EVENT:', event + '(' + (name ? name : '') + ')'); });
 		}
 	}
 
@@ -240,8 +248,8 @@ function basicAuthCookie(opt) {
 	if (api) {
 		api.on('error', function(e) { fatal('Unable to start HTTP server (' + (e?.code ?? '?') + ')'); });
 		if ((basicAuth === null) && (ipaddr.parse(opt.value('http-api-listen-address')).range() !== 'loopback')) {
-			console.warn('Warning: HTTP API listens on ' + opt.value('http-api-listen-address') +
-						 ' without authentication. Anyone who can reach it can change and remove all records.');
+			log.warn('Warning: HTTP API listens on ' + opt.value('http-api-listen-address') +
+					 ' without authentication. Anyone who can reach it can change and remove all records.');
 		}
 	}
 
@@ -253,9 +261,7 @@ function basicAuthCookie(opt) {
 			return;
 		}
 		stopping = true;
-		if (debug) {
-			log('Stopping on', signal);
-		}
+		log.debug('Stopping on', signal);
 		// Whatever happens, the program does not hang around.
 		setTimeout(function() { process.exit(1); }, 5000).unref();
 		(async function() {

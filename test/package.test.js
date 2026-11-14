@@ -18,6 +18,7 @@ const PUBLISHED = [
 	'README.md',
 	'bin/tr-ddns',
 	'lib/apiserver.js',
+	'lib/index.d.ts',
 	'lib/index.js',
 	'lib/log.js',
 	'lib/namedb.js',
@@ -69,6 +70,29 @@ describe('npm package', function() {
 		}
 		assert.equal(require('tr-ddns/package.json').name, 'tr-ddns');
 		assert.throws(() => require('tr-ddns/lib/namedb.js'), { code: 'ERR_PACKAGE_PATH_NOT_EXPORTED' });
+	});
+
+	test('the type declarations cover the public interface', function() {
+		assert.equal(pkg.types, 'lib/index.d.ts');
+		assert.equal(pkg.exports['.'].types, './lib/index.d.ts');
+		let dts = fs.readFileSync(path.join(ROOT, pkg.types), 'utf8');
+		let m = require(ROOT);
+		for (let name of Object.keys(m)) {
+			assert.match(dts, new RegExp('export (class|const|function) ' + name + '\\b'), name);
+		}
+		// Every method of the exported classes is declared in its class.
+		for (let name of [ 'NameDB', 'NameServer', 'ApiServer', 'ConfigStore' ]) {
+			let start = dts.indexOf('export class ' + name + ' ');
+			let body = dts.slice(start, dts.indexOf('\n}\n', start));
+			for (let method of Object.getOwnPropertyNames(m[name].prototype)) {
+				if (method !== 'constructor') {
+					assert.match(body, new RegExp('\\n\\t' + method + '\\('), name + '.' + method);
+				}
+			}
+		}
+		for (let fn of Object.keys(m.log)) {
+			assert.match(dts, new RegExp('\\n\\t' + fn + '[(:]'), 'log.' + fn);
+		}
 	});
 
 	test('declares the command', function() {

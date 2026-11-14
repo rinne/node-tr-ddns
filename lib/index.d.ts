@@ -270,6 +270,32 @@ export class ApiServer extends EventEmitter {
 	close(): Promise<void>;
 }
 
+export interface ControlServerOptions {
+	/** The socket file. */
+	path: string;
+	/** Permissions of the socket file, a number or an octal string. The default is 0600. */
+	mode?: number | string;
+	/** An API core to share with other transports. */
+	api?: ApiCore;
+	/** Required unless api is given. */
+	nameDB?: NameDB;
+	/** Largest request body in bytes. The default is 65536. */
+	maxBodySize?: number;
+	debug?: boolean;
+}
+
+/**
+ * The HTTP API on a Unix domain socket, without authentication.
+ *
+ * Events: 'ready' when listening, 'error' when the socket cannot be
+ * created.
+ */
+export class ControlServer extends EventEmitter {
+	constructor(config: ControlServerOptions);
+	/** Stops listening and removes the socket file. */
+	close(): Promise<void>;
+}
+
 export interface ConfigStoreOptions {
 	file: string;
 	nameDB: NameDB;

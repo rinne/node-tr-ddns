@@ -28,6 +28,8 @@ Options:
             --http-api-password-file=<arg>   File containing required password for HTTP API server
             --http-api-listen-address=<arg>  Listen address for HTTP control server
             --http-api-listen-port=<arg>     Listen port for HTTP-API server
+            --control-socket=<arg>           Serve the API also on this Unix domain socket
+            --control-socket-mode=<arg>      Permissions of the control socket in octal
   -h        --help                           Show help and exit
 Each option, except --config-file, --init-config-file and --help, can
 also be given in environment variable TR_DDNS_OPT_<NAME>, where <NAME>
@@ -81,6 +83,28 @@ twice.
 | `--http-api-password=<password>` | The password. Visible in the process list; prefer the file or the environment. | |
 | `--http-api-password-file=<file>` | Read the password from the first line of a file. Cannot be combined with `--http-api-password`. | |
 
+### Control socket
+
+| Option | Meaning | Default |
+| --- | --- | --- |
+| `--control-socket=<path>` | Serve the API also on a Unix domain socket at this path. | off |
+| `--control-socket-mode=<mode>` | The permissions of the socket file in octal. | `600` |
+
+The control socket is the API of [api.md](api.md) without a network port
+and without authentication: whoever may open the socket file may do
+everything. It does not need `--http-api`, and when nothing but DNS
+should be reachable from outside, it is the way to manage the server.
+Any HTTP client that can use a Unix socket works with it:
+
+```
+curl --unix-socket /run/tr-ddns/control.sock 'http://localhost/stats'
+```
+
+The socket file is created at startup and removed at exit. A socket file
+left behind by a server that was killed is replaced; a socket that
+another server is listening on, or a file that is not a socket, stops
+the program. The directory must exist and be writable by the server.
+
 Without a user and a password the API is open to everyone who can reach
 the port. The program warns about it at startup unless the listen
 address is a loopback address.
@@ -113,6 +137,8 @@ environment.
 | `TR_DDNS_OPT_HTTP_API_PASSWORD_FILE` | `--http-api-password-file` |
 | `TR_DDNS_OPT_HTTP_API_LISTEN_ADDRESS` | `--http-api-listen-address` |
 | `TR_DDNS_OPT_HTTP_API_LISTEN_PORT` | `--http-api-listen-port` |
+| `TR_DDNS_OPT_CONTROL_SOCKET` | `--control-socket` |
+| `TR_DDNS_OPT_CONTROL_SOCKET_MODE` | `--control-socket-mode` |
 
 ## Starting and stopping
 

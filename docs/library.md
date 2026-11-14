@@ -5,7 +5,7 @@ another program. Everything is exported from the main module, and type
 declarations are included.
 
 ```js
-const { NameDB, NameServer, ApiServer, ApiCore, ConfigStore, log } = require('tr-ddns');
+const { NameDB, NameServer, ApiServer, ApiCore, ControlServer, ConfigStore, log } = require('tr-ddns');
 ```
 
 The modules can also be required one by one, as before version 2.0.0:
@@ -203,6 +203,29 @@ db.close();
 
 To serve one core over several transports, give it to each of them in
 the `api` option instead of `nameDB`.
+
+## ControlServer
+
+The API on a Unix domain socket, without authentication. It starts
+listening when it is created.
+
+| Option | Description | Default |
+| --- | --- | --- |
+| `path` | The socket file. Required. | |
+| `mode` | The permissions of the socket file, a number or an octal string. | `0600` |
+| `api` | An `ApiCore` to serve, shared with other transports. | one of its own |
+| `nameDB` | The database to manage. Required unless `api` is given. | |
+| `maxBodySize` | The largest request body in bytes. | 65536 |
+| `debug` | Log requests. | off |
+
+| Member | Description |
+| --- | --- |
+| `close()` | Stops listening and removes the socket file. Returns a promise. |
+
+| Event | When |
+| --- | --- |
+| `ready` | The server is listening. |
+| `error` | The socket could not be created; the argument is the error. Its `code` is `EADDRINUSE` when another server listens on the socket and `EEXIST` when the path is a file that is not a socket. |
 
 ## ConfigStore
 

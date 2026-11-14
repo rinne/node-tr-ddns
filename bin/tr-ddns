@@ -8,6 +8,8 @@ const ipaddr = require('ipaddr.js');
 const NameDB = require('../lib/namedb');
 const NameServer = require('../lib/nameserver');
 const ApiServer = require('../lib/apiserver');
+const ApiCore = require('../lib/api');
+const ControlServer = require('../lib/controlserver');
 const ConfigStore = require('../lib/store');
 const log = require('../lib/log');
 
@@ -120,7 +122,18 @@ function commandLineOptsParse() {
 					hasArg: true,
 					optArgCb: ou.integerWithLimitsCbFactory(1, 65535),
 					environment: 'TR_DDNS_OPT_HTTP_API_LISTEN_PORT',
-					defaultValue: '80' } ] ))
+					defaultValue: '80' },
+				  { longName: 'control-socket',
+					description: 'Serve the API also on this Unix domain socket',
+					hasArg: true,
+					optArgCb: ((x) => ((x === '') ? undefined : x)),
+					environment: 'TR_DDNS_OPT_CONTROL_SOCKET' },
+				  { longName: 'control-socket-mode',
+					description: 'Permissions of the control socket in octal',
+					hasArg: true,
+					optArgCb: ((x) => (/^[0-7]{3,4}$/.test(x) ? x : undefined)),
+					environment: 'TR_DDNS_OPT_CONTROL_SOCKET_MODE',
+					defaultValue: '600' } ] ))
 			.help('tr-ddns')
 			.helpMessageTail('Each option, except --config-file, --init-config-file and --help, can\n' +
 							 'also be given in environment variable TR_DDNS_OPT_<NAME>, where <NAME>\n' +
@@ -236,9 +249,11 @@ function basicAuthCookie(opt) {
 		server.on('error', function(e) { fatal('Unable to start DNS server (' + (e?.code ?? '?') + ')'); });
 	}
 
+	// The API is the same whichever way it is reached.
+	const apiCore = new ApiCore({ nameDB: db, nameServer: server, debug: debug });
+
 	const api = (opt.value('http-api') ?
-				 new ApiServer({ nameDB: db,
-								 nameServer: server,
+				 new ApiServer({ api: apiCore,
 								 port: opt.value('http-api-listen-port'),
 								 address: opt.value('http-api-listen-address'),
 								 debug: debug,
@@ -251,6 +266,17 @@ function basicAuthCookie(opt) {
 			log.warn('Warning: HTTP API listens on ' + opt.value('http-api-listen-address') +
 					 ' without authentication. Anyone who can reach it can change and remove all records.');
 		}
+	}
+
+	const control = (opt.value('control-socket') ?
+					 new ControlServer({ api: apiCore,
+										 path: opt.value('control-socket'),
+										 mode: opt.value('control-socket-mode'),
+										 debug: debug }) :
+					 undefined);
+
+	if (control) {
+		control.on('error', function(e) { fatal('Unable to start control socket (' + (e?.code ?? '?') + ')'); });
 	}
 
 	// On a termination signal the pending changes are written to the
@@ -273,7 +299,7 @@ function basicAuthCookie(opt) {
 				code = 1;
 			}
 			store.close();
-			await Promise.allSettled([ api ? api.close() : undefined, server ? server.close() : undefined ]);
+			await Promise.allSettled([ api, control, server ].map((x) => (x ? x.close() : undefined)));
 			db.close();
 			process.exit(code);
 		})();

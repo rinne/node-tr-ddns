@@ -4,8 +4,16 @@ Every version published to npm, newest first.
 
 ## 3.0.0 (unreleased)
 
+### Program
+
+- `--control-socket` serves the API on a Unix domain socket: no network
+  port and no authentication, access by the permissions of the socket
+  file (`--control-socket-mode`, 600 by default). It works without
+  `--http-api`.
+
 ### Library
 
+- `ControlServer`: the API on a Unix domain socket.
 - `ApiCore`: the calls of the API without a transport. `handle()` takes a
   path and parameters and returns a status and a body. `ApiServer` is now
   a layer on top of it and accepts a shared core in its `api` option.

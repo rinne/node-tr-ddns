@@ -172,6 +172,57 @@ async function apiCall(base, urlPath, params, opts) {
 	return { status: res.status, body: body, text: text, headers: res.headers };
 }
 
+// An API call through a Unix domain socket. Takes the same arguments
+// as apiCall() and returns the same kind of result.
+function socketCall(socketPath, urlPath, params, opts) {
+	let http = require('node:http');
+	let headers = Object.assign({}, opts?.headers);
+	let method = opts?.method ?? 'GET';
+	let body;
+	if (opts?.json) {
+		method = opts?.method ?? 'POST';
+		headers['Content-Type'] = 'application/json';
+		body = JSON.stringify(params ?? {});
+	} else if (opts?.rawBody !== undefined) {
+		body = opts.rawBody;
+	} else if (params) {
+		let u = new URLSearchParams();
+		for (let [ k, v ] of Object.entries(params)) {
+			for (let x of (Array.isArray(v) ? v : [ v ])) {
+				u.append(k, x);
+			}
+		}
+		let qs = u.toString();
+		if (qs !== '') {
+			urlPath += '?' + qs;
+		}
+	}
+	if (opts?.auth) {
+		headers.Authorization = 'Basic ' + Buffer.from(opts.auth).toString('base64');
+	}
+	return new Promise(function(resolve, reject) {
+		let req = http.request({ socketPath: socketPath, path: urlPath, method: method, headers: headers }, function(res) {
+			let chunks = [];
+			res.on('data', (d) => chunks.push(d));
+			res.on('end', function() {
+				let text = Buffer.concat(chunks).toString('utf8');
+				let parsed;
+				try {
+					parsed = JSON.parse(text);
+				} catch (e) {
+					parsed = undefined;
+				}
+				resolve({ status: res.statusCode, body: parsed, text: text, headers: new Headers(res.headers), raw: Buffer.concat(chunks) });
+			});
+		});
+		req.on('error', reject);
+		if (body !== undefined) {
+			req.write(body);
+		}
+		req.end();
+	});
+}
+
 // Runs fn with console.log, console.warn and console.error captured.
 // Returns the captured lines.
 async function captureConsole(fn) {
@@ -333,5 +384,5 @@ module.exports = {
 	ROOT, LIB, CLI, LAUNCHER, lib, Packet, TYPE, RCODE,
 	freePort, freeTcpPort, freeUdpPort,
 	buildQuery, udpExchange, tcpExchange, dnsQuery,
-	apiCall, captureConsole, full, startStack, startOfRatePeriod, tmpDir, runCli, startCli, waitFor
+	apiCall, socketCall, captureConsole, full, startStack, startOfRatePeriod, tmpDir, runCli, startCli, waitFor
 };

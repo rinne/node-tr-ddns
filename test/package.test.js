@@ -20,8 +20,10 @@ const PUBLISHED = [
 	'bin/tr-ddns',
 	'lib/api.js',
 	'lib/apiserver.js',
+	'lib/controlserver.js',
 	'lib/index.d.ts',
 	'lib/index.js',
+	'lib/listener.js',
 	'lib/log.js',
 	'lib/namedb.js',
 	'lib/nameserver.js',
@@ -55,7 +57,7 @@ describe('npm package', function() {
 
 	test('the main entry exports the library', function() {
 		let m = require(ROOT);
-		assert.deepEqual(Object.keys(m).sort(), [ 'ApiCore', 'ApiServer', 'ConfigStore', 'NameDB', 'NameServer', 'log', 'nullish', 'ts' ]);
+		assert.deepEqual(Object.keys(m).sort(), [ 'ApiCore', 'ApiServer', 'ConfigStore', 'ControlServer', 'NameDB', 'NameServer', 'log', 'nullish', 'ts' ]);
 		assert.equal(typeof(m.NameDB), 'function');
 		assert.equal(typeof(m.NameServer), 'function');
 		assert.equal(typeof(m.ApiServer), 'function');
@@ -88,7 +90,7 @@ describe('npm package', function() {
 			assert.match(dts, new RegExp('export (class|const|function) ' + name + '\\b'), name);
 		}
 		// Every method of the exported classes is declared in its class.
-		for (let name of [ 'NameDB', 'NameServer', 'ApiServer', 'ApiCore', 'ConfigStore' ]) {
+		for (let name of [ 'NameDB', 'NameServer', 'ApiServer', 'ApiCore', 'ControlServer', 'ConfigStore' ]) {
 			let start = dts.indexOf('export class ' + name + ' ');
 			let body = dts.slice(start, dts.indexOf('\n}\n', start));
 			for (let method of Object.getOwnPropertyNames(m[name].prototype)) {

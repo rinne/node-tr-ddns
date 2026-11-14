@@ -2,15 +2,68 @@
 
 ## In A Nutshell
 
-TR-DDNS is a simple dynamic-DNS server built on top of dns2 library.
+TR-DDNS is a small authoritative DNS server for names that change. Hosts
+and their records are added, updated and removed through an HTTP API,
+and are served right away. It is made for dynamic addresses, for
+short-lived records such as ACME DNS-01 challenges, and for anything
+else where editing a zone file is too slow.
+
+- A, AAAA, TXT, MX, CNAME, NS, SRV and CAA records, several of each per
+  host.
+- Hosts can have a lifetime, after which they disappear on their own.
+- DNS over UDP and TCP, IPv4 and IPv6.
+- Everything is kept in one JSON file.
+- Can be used as a library.
+
+It serves the domains it is given and nothing else: it is not a
+resolver, and it does not do DNSSEC or zone transfers.
+
+Requires Node.js 24 or newer.
+
+## Installation
+
+```
+npm install -g tr-ddns
+```
+
+## Quick Start
+
+Create an empty configuration file and start the server with DNS on port
+5300 and the API on port 8080 of the local machine.
+
+```
+tr-ddns -c ddns.json --init-config-file
+tr-ddns -c ddns.json --udp --tcp --udp-listen-port=5300 --tcp-listen-port=5300 --http-api --http-api-listen-address=127.0.0.1 --http-api-listen-port=8080
+```
+
+Add a domain and a host, and ask for it. These examples are run by the
+test suite.
+
+```bash
+curl 'http://127.0.0.1:8080/domain?domain=example.com'
+curl 'http://127.0.0.1:8080/host?host=www.example.com&a=192.0.2.10'
+dig @127.0.0.1 -p 5300 www.example.com A
+```
+
+A record that removes itself after ten minutes:
+
+```bash
+curl 'http://127.0.0.1:8080/host?host=_acme-challenge.example.com&txt=some-token&ttl=600'
+dig @127.0.0.1 -p 5300 _acme-challenge.example.com TXT
+```
+
+To serve a real domain, the server needs port 53 and a delegation from
+the parent zone; see
+[deployment](https://github.com/rinne/node-tr-ddns/blob/main/docs/deployment.md).
 
 ## Usage
 
 ```
+Usage:
   tr-ddns [<opt> ...]
-
 Options:
             --debug                          Enable debug messages
+            --log-level=<arg>                Log level: none, error, warn, info or debug
   -c <arg>  --config-file=<arg>              Configuration file
             --init-config-file               Initialize configuration file and exit
             --config-write-interval=<arg>    Shortest time in seconds between writes of configuration file
@@ -24,69 +77,21 @@ Options:
             --dns-refuse-out-of-zone         Answer REFUSED to queries outside of served domains instead of ignoring them
             --http-api                       Enable HTTP-API server
             --http-api-user=<arg>            Required username for HTTP API server
-            --http-api-password=<arg>        Required passwordname for HTTP API server
+            --http-api-password=<arg>        Required password for HTTP API server
             --http-api-password-file=<arg>   File containing required password for HTTP API server
             --http-api-listen-address=<arg>  Listen address for HTTP control server
             --http-api-listen-port=<arg>     Listen port for HTTP-API server
   -h        --help                           Show help and exit
+Each option, except --config-file, --init-config-file and --help, can
+also be given in environment variable TR_DDNS_OPT_<NAME>, where <NAME>
+is the long option name in upper case with dashes as underscores, e.g.
+TR_DDNS_OPT_UDP_LISTEN_PORT=5300. An option without an argument is
+switched on with value true.
 ```
 
-Each option, except `--config-file`, `--init-config-file` and `--help`,
-can also be given in environment variable `TR_DDNS_OPT_<NAME>`, where
-`<NAME>` is the long option name in upper case with dashes as
-underscores, for example `TR_DDNS_OPT_UDP_LISTEN_PORT=5353`. An option
-without an argument is switched on with value `true`.
-
-### Configuration file
-
-All domains and hosts are kept in the configuration file, which the
-server reads at startup and rewrites when something changes. Changes
-that come in quick succession are written together: there is at least
-`--config-write-interval` seconds (10 by default) between two writes.
-The file is replaced in one step, so a crash cannot leave half a file
-behind. On SIGTERM and SIGINT the pending changes are written before the
-server exits.
-
-### Securing the API
-
-Without `--http-api-user`, anyone who can reach the API port can change
-and remove everything, and the default listen address is `0.0.0.0`. The
-server prints a warning at startup in that case. Either set a user and a
-password, or let the API listen on `127.0.0.1` only. A password given on
-the command line is visible in the process list;
-`--http-api-password-file` reads it from the first line of a file
-instead.
-
-### What the DNS server answers
-
-The server is authoritative for the domains it serves and answers
-nothing else.
-
-- A name that has records of the type asked: the records, with the AA
-  flag set.
-- A name that exists but has no records of the type asked, whatever the
-  type is: an empty answer with the SOA record of the domain in the
-  authority section.
-- A name that does not exist in a served domain: NXDOMAIN, also with the
-  SOA record.
-- A name that has a CNAME record: the CNAME, followed by the records of
-  the target if the target is served here as well.
-- A name that is delegated with NS records, and every name below it: a
-  referral to those name servers.
-- A name outside the served domains: no answer at all, or REFUSED with
-  `--dns-refuse-out-of-zone`.
-- Anything that is not a plain query with one question: no answer.
-
-Answers that do not fit in a UDP packet are truncated, and the client
-retries over TCP, so enable both `--udp` and `--tcp`. The listen address
-options take several addresses separated by commas, for example
-`--udp-listen-address=0.0.0.0,::`.
-
-### Rate limiting
-
-A single source address (a /64 prefix for IPv6) gets at most
-`--dns-rate-limit` queries answered per second, 500 by default. Queries
-over the limit are ignored. `--dns-rate-limit=0` removes the limit.
+The API is open to everyone who can reach it unless a user and a
+password are set. Let it listen on `127.0.0.1`, or protect it; see
+[securing the API](https://github.com/rinne/node-tr-ddns/blob/main/docs/deployment.md#securing-the-api).
 
 ## API
 
@@ -96,140 +101,46 @@ method with JSON payload. Every response is JSON of the form
 `{ "status": "error", "code": 400, "message": "..." }`, and the HTTP
 status is the same as `code`.
 
-If `--http-api-user` and a password are given, every call needs HTTP
-Basic authentication (`curl -u user:password ...`).
+| Call | What it does |
+| --- | --- |
+| `/domain?domain=D` | Start serving a domain. Optional settings: `ns`, `admin`, `ttl`, `refresh`, `retry`, `expiration`, `minimum`. |
+| `/domain?domain=D&update=true&...` | Change the settings of a served domain. |
+| `/domain?domain=D&remove=true` | Stop serving a domain and remove its hosts. |
+| `/host?host=H&a=...&aaaa=...&txt=...` | Set the records of a host, replacing what it had. Record parameters: `a`, `aaaa`, `txt`, `mx`, `cname`, `ns`, `srv`, `caa`; repeat one for several values. |
+| `/host?host=H&...&ttl=SECONDS` | The same, and remove the host after the given time. |
+| `/host?host=H&...&merge=true` | Keep the records that the call does not mention. |
+| `/host?host=H&remove=true` | Remove a host. |
+| `/record?host=H&command=C&type=T&value=V` | `add`, `set`, `remove` or `clear` the values of one record type of a host. |
+| `/dump` | All domains and hosts. |
+| `/stats` | Counters. |
+| `/flush` | Remove ALL hosts AND domains. |
 
-### Add Domain
-
-```
-curl 'http://TR-DDNS-ADDR/domain?domain=test-domain.tld'
-```
-
-Fails if the domain already exists or if there is already a domain,
-which is either a parent domain or a subdomain of the domain that is
-added.
-
-A domain has settings that can be given when it is added:
-
-| Parameter | Meaning | Default |
-| --- | --- | --- |
-| `ns` | Name servers of the domain; repeat the parameter for several. The first one is the primary server in the SOA record. | the domain itself |
-| `admin` | Mail address of the administrator, as `user@example.com` or in the SOA form `user.example.com` | `postmaster` at the domain |
-| `ttl` | Time to live of the records of the domain, in seconds | 60 |
-| `refresh`, `retry`, `expiration`, `minimum` | The timers of the SOA record, in seconds | 300, 3, 10, 10 |
-
-```
-curl 'http://TR-DDNS-ADDR/domain?domain=test-domain.tld&ns=ns1.test-domain.tld&ns=ns2.test-domain.tld&admin=hostmaster@test-domain.tld&ttl=300'
+```bash
+curl 'http://127.0.0.1:8080/host?host=mail.example.com&a=192.0.2.25&a=192.0.2.26'
+curl 'http://127.0.0.1:8080/host?host=example.com&mx=10+mail.example.com&txt=v%3Dspf1+mx+-all'
+curl 'http://127.0.0.1:8080/host?host=www.example.com&aaaa=2001:db8::10&merge=true'
+curl 'http://127.0.0.1:8080/record?host=www.example.com&command=add&type=a&value=192.0.2.11'
+curl -H 'Content-Type: application/json' -d '{"host":"alias.example.com","cname":"www.example.com"}' 'http://127.0.0.1:8080/host'
+curl 'http://127.0.0.1:8080/host?host=mail.example.com&remove=true'
 ```
 
-By default the domain is its own name server, so for the delegation from
-the parent zone to work, either give the domain an A or AAAA record
-(`/host?host=test-domain.tld&a=...`) or set `ns` to the real names of the
-servers. `minimum` is also how long resolvers remember that a name does
-not exist.
+Two things to keep in mind:
 
-### Change the Settings of a Domain
+- `ttl` in a `host` call is the lifetime of the host, not the DNS time
+  to live. It covers the whole host, and a later call without `ttl`
+  makes the host permanent, also with `merge=true`.
+- A `host` call without any record parameter removes the host.
 
-With `update=true` the call changes the settings of a domain that is
-already served. Only the settings given are changed, and an empty value
-brings back the default.
+## Documentation
 
-```
-curl 'http://TR-DDNS-ADDR/domain?domain=test-domain.tld&update=true&ttl=120'
-curl 'http://TR-DDNS-ADDR/domain?domain=test-domain.tld&update=true&ns='
-```
-
-### Remove Domain
-
-Removes also all host records under that domain.
-
-```
-curl 'http://TR-DDNS-ADDR/domain?domain=test-domain.tld&remove=true'
-```
-
-### Add or Update Host
-
-A record parameter can be repeated (or be an array in a JSON payload) to
-set several values of the same type. The supported records are
-
-| Parameter | Value | Example |
-| --- | --- | --- |
-| `a` | IPv4 address | `1.2.3.4` |
-| `aaaa` | IPv6 address | `2001:db8::1` |
-| `txt` | Text, at most 4096 bytes | `v=spf1 -all` |
-| `mx` | Mail server, optionally with a priority in front. Without one, the priority is the position of the value, starting from 1. | `10 mail.example.com` |
-| `cname` | Target of an alias. A host that has a CNAME has no other records, and the top of a domain cannot have one. | `www.example.com` |
-| `ns` | Name server that the host and everything under it is delegated to. Not for the top of a domain; use the `ns` setting of the domain. | `ns1.example.net` |
-| `srv` | `priority weight port target` | `10 5 5060 sip.example.com` |
-| `caa` | `flags tag value` | `0 issue letsencrypt.org` |
-
-A host name consists of labels of letters, digits and hyphens. A label
-may start with an underscore (`_acme-challenge`, `selector._domainkey`,
-`_sip._tcp`), and the name may end with a dot.
-
-```
-curl 'http://TR-DDNS-ADDR/host?host=host1.test-domain.tld&a=1.2.3.4'
-curl 'http://TR-DDNS-ADDR/host?host=host1.test-domain.tld&a=1.2.3.4&a=5.6.7.8'
-curl 'http://TR-DDNS-ADDR/host?host=host2.test-domain.tld&a=1.2.3.4&aaaa=2001:db8::dead:beef&mx=my.mail.server.tld'
-curl 'http://TR-DDNS-ADDR/host?host=_sometext.test-domain.tld&txt=this-is-probably-some-dynamic-authorization'
-```
-
-Lifetime can be set by ttl parameter, which makes the record disappear
-after the given number of seconds. Lifetime is common for entire host,
-so all records of the host are deleted, when the expiration occurs.
-
-```
-curl 'http://TR-DDNS-ADDR/host?host=_hello.test-domain.tld&txt=hello&ttl=3600'
-```
-
-All records for a host can be set with a single call and the
-subsequent call replace all records of the host and remove previously
-set records that are not present in the call. This behavior can be
-overridden by using parameter `merge=true`, which causes the new
-records to be merge on top of the old ones and spares the old records
-that are not present in the call. Mostly this does what you'd expect,
-but a couple things to keep in mind.
-
-- Merge does not spare earlier TTL. If you want one, you'll have to submit
-  it in all `host` calls and if you omit it, also the previously set
-  records become non-expiring.
-- Removing an existing record is done by setting it to an empty string.
-  This DOES NOT actually set it to an empty string, but removes it.
-  If the record is not present at all in the merge call, then the possible
-  old record is left as it is.
-
-### Remove Host
-
-```
-curl 'http://TR-DDNS-ADDR/host?host=_hello.test-domain.tld&remove=true'
-```
-
-A `host` call without any record parameter removes the host as well.
-
-### Add, Set, Remove or Clear a Single Record
-
-A host can have several records of each type. The `record` call changes
-one type of one host and leaves the rest, including the lifetime of the
-host, as it is. `command` is `add`, `set` (replace all values of the
-type with this one), `remove` or `clear` (remove all values of the type;
-no `value` needed). `type` is one of the record types above.
-
-```
-curl 'http://TR-DDNS-ADDR/record?host=host1.test-domain.tld&command=add&type=a&value=5.6.7.8'
-curl 'http://TR-DDNS-ADDR/record?host=host1.test-domain.tld&command=remove&type=a&value=1.2.3.4'
-curl 'http://TR-DDNS-ADDR/record?host=host1.test-domain.tld&command=clear&type=txt'
-```
-
-### Dump, Stats and Flush
-
-```
-curl 'http://TR-DDNS-ADDR/dump'
-curl 'http://TR-DDNS-ADDR/stats'
-curl 'http://TR-DDNS-ADDR/flush'
-```
-
-`dump` returns all domains and hosts, `stats` returns counters, and
-`flush` removes ALL hosts AND domains.
+- [Command line](https://github.com/rinne/node-tr-ddns/blob/main/docs/cli.md): options, environment variables, exit status, logging.
+- [HTTP API](https://github.com/rinne/node-tr-ddns/blob/main/docs/api.md): every call, parameter and response.
+- [DNS behaviour](https://github.com/rinne/node-tr-ddns/blob/main/docs/dns.md): what is answered and what is ignored, record types, SOA and NS, rate limiting.
+- [Configuration file](https://github.com/rinne/node-tr-ddns/blob/main/docs/config-file.md): format and how it is written.
+- [Deployment](https://github.com/rinne/node-tr-ddns/blob/main/docs/deployment.md): delegation, port 53, securing the API, running as a service.
+- [Library](https://github.com/rinne/node-tr-ddns/blob/main/docs/library.md): using the server from another program.
+- [Upgrading from 1.x](https://github.com/rinne/node-tr-ddns/blob/main/docs/upgrading.md): what changed in 2.0.
+- [Changelog](https://github.com/rinne/node-tr-ddns/blob/main/CHANGELOG.md).
 
 ## Author
 

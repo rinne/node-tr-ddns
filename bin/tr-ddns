@@ -99,7 +99,7 @@ function commandLineOptsParse() {
 					optArgCb: ((x) => ((x === '') ? undefined : x)),
 					environment: 'TR_DDNS_OPT_HTTP_API_USER' },
 				  { longName: 'http-api-password',
-					description: 'Required passwordname for HTTP API server',
+					description: 'Required password for HTTP API server',
 					hasArg: true,
 					optArgCb: ((x) => ((x === '') ? undefined : x)),
 					environment: 'TR_DDNS_OPT_HTTP_API_PASSWORD',
@@ -125,7 +125,7 @@ function commandLineOptsParse() {
 			.helpMessageTail('Each option, except --config-file, --init-config-file and --help, can\n' +
 							 'also be given in environment variable TR_DDNS_OPT_<NAME>, where <NAME>\n' +
 							 'is the long option name in upper case with dashes as underscores, e.g.\n' +
-							 'TR_DDNS_OPT_UDP_LISTEN_PORT=5353. An option without an argument is\n' +
+							 'TR_DDNS_OPT_UDP_LISTEN_PORT=5300. An option without an argument is\n' +
 							 'switched on with value true.')
 			.parse(undefined, 0, 0));
 }

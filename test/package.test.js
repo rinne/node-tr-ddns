@@ -104,6 +104,12 @@ describe('npm package', function() {
 		}
 	});
 
+	test('documents other than the README stay out of the package', function() {
+		assert.ok(fs.existsSync(path.join(ROOT, 'docs', 'api.md')));
+		assert.ok(fs.existsSync(path.join(ROOT, 'CHANGELOG.md')));
+		assert.ok(! PUBLISHED.some((f) => (f.startsWith('docs/') || (f === 'CHANGELOG.md') || f.startsWith('test/'))));
+	});
+
 	test('the licence files are identical', function() {
 		assert.equal(fs.readFileSync(path.join(ROOT, 'LICENSE'), 'utf8'), fs.readFileSync(path.join(ROOT, 'MIT-RINNE'), 'utf8'));
 	});

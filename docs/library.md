@@ -5,7 +5,7 @@ another program. Everything is exported from the main module, and type
 declarations are included.
 
 ```js
-const { NameDB, NameServer, ApiServer, ConfigStore, log } = require('tr-ddns');
+const { NameDB, NameServer, ApiServer, ApiCore, ConfigStore, log } = require('tr-ddns');
 ```
 
 The modules can also be required one by one, as before version 2.0.0:
@@ -154,7 +154,8 @@ created.
 
 | Option | Description | Default |
 | --- | --- | --- |
-| `nameDB` | The database to manage. Required. | |
+| `nameDB` | The database to manage. Required unless `api` is given. | |
+| `api` | An `ApiCore` to serve, shared with other transports. | one of its own |
 | `nameServer` | A `NameServer` whose counters are added to `/stats`. | |
 | `address` | | `0.0.0.0` |
 | `port` | | 80 |
@@ -170,6 +171,38 @@ created.
 | --- | --- |
 | `ready` | The server is listening. |
 | `error` | The listener could not be started; the argument is the error. |
+
+## ApiCore
+
+The calls of the API without a transport: what `ApiServer` and the other
+HTTP layers of the package run for each request. Use it to offer the API
+over something else, or to make calls from the same process.
+
+| Option | Description |
+| --- | --- |
+| `nameDB` | The database to manage. Required. |
+| `nameServer` | An object whose `stats()` is added to `/stats` as `dns`. |
+| `dohServer` | An object whose `stats()` is added to `/stats` as `doh`. |
+| `debug` | Log details of rejected input. |
+
+| Method | Description |
+| --- | --- |
+| `handle({ method, path, params })` | Performs one call. `path` is the path of [api.md](api.md) without a query string, `params` an object of parameters. Returns `{ status, body }`: the HTTP status and the JSON object of the response. Never throws. |
+| `countCall()`, `countAuthFailure()` | Count a request, and a request refused for missing or wrong credentials, for `/stats`. A transport calls these. |
+
+```js
+const { NameDB, ApiCore } = require('tr-ddns');
+
+const db = new NameDB();
+const api = new ApiCore({ nameDB: db });
+api.handle({ path: '/domain', params: { domain: 'example.com' } });
+const result = api.handle({ path: '/host', params: { host: 'www.example.com', a: '192.0.2.10' } });
+// result is { status: 200, body: { status: 'ok', code: 200 } }
+db.close();
+```
+
+To serve one core over several transports, give it to each of them in
+the `api` option instead of `nameDB`.
 
 ## ConfigStore
 

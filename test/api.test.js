@@ -1,6 +1,6 @@
 'use strict';
 
-const { test, describe, before, after, beforeEach } = require('node:test');
+const { test, describe, before, after, beforeEach, afterEach } = require('node:test');
 const assert = require('node:assert/strict');
 
 const { once } = require('node:events');
@@ -489,6 +489,84 @@ describe('HTTP API with authentication', function() {
 	test('accepts the right credentials', async function() {
 		ok(await s.call('/', undefined, { auth: 'user:secret' }));
 		ok(await s.call('/domain', { domain: 'example.com' }, { auth: 'user:secret', json: true }));
+	});
+
+});
+
+describe('ApiCore', function() {
+
+	let db, api;
+
+	beforeEach(function() {
+		db = new lib.NameDB();
+		db.addDomain('example.com');
+		api = new lib.ApiCore({ nameDB: db });
+	});
+
+	afterEach(function() {
+		db.close();
+	});
+
+	test('performs a call without any transport', function() {
+		assert.deepEqual(api.handle({ path: '/host', params: { host: 'h.example.com', a: '1.2.3.4' } }),
+						 { status: 200, body: { status: 'ok', code: 200 } });
+		assert.deepEqual(db.dump().hosts[0].data.a, [ '1.2.3.4' ]);
+		let r = api.handle({ method: 'GET', path: '/' });
+		assert.deepEqual(r, { status: 200, body: { status: 'ok', code: 200, data: { 'package': 'tr-ddns', version: pkg.version } } });
+		assert.equal(api.handle({ path: '/dump' }).body.data.hosts.length, 1);
+		assert.equal(api.handle({ path: '/flush' }).status, 200);
+		assert.equal(db.stats().domains, 0);
+	});
+
+	test('answers with a status and a message when a call fails', function() {
+		assert.deepEqual(api.handle({ path: '/host', params: { host: 'not valid' } }),
+						 { status: 400, body: { status: 'error', code: 400, message: 'Bad request (host)' } });
+		assert.deepEqual(api.handle({ path: '/nope' }), { status: 404, body: { status: 'error', code: 404, message: 'Not found' } });
+		for (let request of [ undefined, null, {}, { path: 7 }, { path: '/host' }, { path: '/host', params: 'x' }, { path: '/record', params: null } ]) {
+			let r = api.handle(request);
+			assert.ok([ 400, 404 ].includes(r.status), JSON.stringify(request));
+			assert.equal(r.body.code, r.status);
+		}
+	});
+
+	test('an unexpected failure is a 500 and is logged, not thrown', async function() {
+		let broken = new lib.ApiCore({ nameDB: { get: () => [], dump: () => { throw new Error('boom'); } } });
+		let r;
+		let lines = await captureConsole(() => { r = broken.handle({ path: '/dump' }); });
+		assert.deepEqual(r, { status: 500, body: { status: 'error', code: 500, message: 'Internal error' } });
+		assert.ok(lines.some((l) => /boom/.test(l)));
+	});
+
+	test('counts calls and refused calls for /stats', function() {
+		api.countCall();
+		api.countCall();
+		api.countAuthFailure();
+		let d = api.handle({ path: '/stats' }).body.data;
+		assert.deepEqual([ d.apiCalls, d.authFailures, d.domains ], [ 2, 1, 1 ]);
+		assert.equal(d.dns, undefined);
+	});
+
+	test('includes the counters of the servers it is given', function() {
+		let withServers = new lib.ApiCore({ nameDB: db, nameServer: { stats: () => ({ queries: 5 }) }, dohServer: { stats: () => ({ requests: 3 }) } });
+		let d = withServers.handle({ path: '/stats' }).body.data;
+		assert.deepEqual(d.dns, { queries: 5 });
+		assert.deepEqual(d.doh, { requests: 3 });
+	});
+
+	test('validates its options', function() {
+		assert.throws(() => new lib.ApiCore({}), /NameDB/);
+		assert.throws(() => new lib.ApiCore({ nameDB: db, nameServer: {} }), /NameServer/);
+		assert.throws(() => new lib.ApiCore({ nameDB: db, dohServer: {} }), /DohServer/);
+	});
+
+	test('one core can serve several transports', async function() {
+		let a = new lib.ApiServer({ api: api, port: await freeTcpPort(), address: '127.0.0.1' });
+		await once(a, 'ready');
+		try {
+			assert.throws(() => new lib.ApiServer({ api: {}, port: 8080 }), /ApiCore/);
+		} finally {
+			await a.close();
+		}
 	});
 
 });

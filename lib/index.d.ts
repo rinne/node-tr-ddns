@@ -208,8 +208,44 @@ export class NameServer extends EventEmitter {
 	close(): Promise<void>;
 }
 
-export interface ApiServerOptions {
+export interface ApiCoreOptions {
 	nameDB: NameDB;
+	/** Adds the counters of the name server to /stats as dns. */
+	nameServer?: { stats(): unknown };
+	/** Adds the counters of the DoH server to /stats as doh. */
+	dohServer?: { stats(): unknown };
+	debug?: boolean;
+}
+
+export interface ApiRequest {
+	method?: string;
+	/** The path without a query string, for example /host. */
+	path: string;
+	params?: Record<string, unknown>;
+}
+
+export interface ApiResult {
+	/** The HTTP status, also in body.code. */
+	status: number;
+	body: { status: 'ok' | 'error'; code: number; message?: string; data?: unknown };
+}
+
+/** The calls of the API without a transport. */
+export class ApiCore {
+	constructor(config: ApiCoreOptions);
+	/** Performs one call. Never throws. */
+	handle(request: ApiRequest): ApiResult;
+	/** Counts a request for /stats. */
+	countCall(): void;
+	/** Counts a request refused for missing or wrong credentials. */
+	countAuthFailure(): void;
+}
+
+export interface ApiServerOptions {
+	/** Required unless api is given. */
+	nameDB?: NameDB;
+	/** An API core to share with other transports. */
+	api?: ApiCore;
 	/** Adds the counters of the name server to /stats. */
 	nameServer?: NameServer;
 	/** The default is 80. */

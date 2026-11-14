@@ -254,7 +254,7 @@ describe('documentation', function() {
 
 	test('the API reference covers every call and record type', function() {
 		let api = read('docs/api.md');
-		let server = fs.readFileSync(path.join(ROOT, 'lib', 'apiserver.js'), 'utf8');
+		let server = fs.readFileSync(path.join(ROOT, 'lib', 'api.js'), 'utf8');
 		let calls = [ ...server.matchAll(/case '(\/[a-z]*)':/g) ].map((m) => m[1]);
 		assert.deepEqual(calls.sort(), [ '/', '/domain', '/dump', '/flush', '/host', '/record', '/stats' ]);
 		for (let c of calls) {

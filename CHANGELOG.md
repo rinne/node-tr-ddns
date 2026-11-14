@@ -2,6 +2,14 @@
 
 Every version published to npm, newest first.
 
+## 3.0.0 (unreleased)
+
+### Library
+
+- `ApiCore`: the calls of the API without a transport. `handle()` takes a
+  path and parameters and returns a status and a body. `ApiServer` is now
+  a layer on top of it and accepts a shared core in its `api` option.
+
 ## 2.0.0 (2026-11-14)
 
 Everything since 1.1.1. The command line, the API calls, the

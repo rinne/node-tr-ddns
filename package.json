@@ -35,7 +35,7 @@
 		"url": "https://github.com/rinne/node-tr-ddns/issues"
 	},
 	"homepage": "https://github.com/rinne/node-tr-ddns#readme",
-    "author": {
+	"author": {
 		"name": "Timo J. Rinne",
 		"email": "tri@iki.fi",
 		"url": "https://github.com/rinne/"
@@ -44,7 +44,7 @@
 	"dependencies": {
 		"dns2": "^2.1.0",
 		"ipaddr.js": "^2.2.0",
-		"optist": "^2.0.1",
-		"tr-apisrv": "^0.2.0"
+		"optist": "^3.0.0",
+		"tr-apisrv": "^3.0.0"
 	}
 }

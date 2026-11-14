@@ -284,8 +284,7 @@ describe('HTTP API', function() {
 	describe('request handling of the HTTP layer', function() {
 
 		test('methods other than GET, POST, PUT and DELETE are refused', async function() {
-			let r = await s.call('/', undefined, { method: 'PATCH' });
-			assert.equal(r.status, 405);
+			bad(await s.call('/', undefined, { method: 'PATCH' }), 'Method Not Allowed', 405);
 		});
 
 		test('PUT and DELETE reach the handlers like POST and GET', async function() {
@@ -296,14 +295,24 @@ describe('HTTP API', function() {
 
 		test('a POST with query parameters is refused', async function() {
 			let r = await s.call('/host?host=h.example.com&a=1.2.3.4', {}, { json: true });
-			assert.equal(r.status, 400);
+			bad(r);
+			assert.match(r.body.message, /^Bad Request \(/);
 		});
 
 		test('a body that is not JSON or form encoded is refused', async function() {
-			let r = await s.call('/host', undefined, { method: 'POST', rawBody: 'hello', headers: { 'Content-Type': 'text/plain' } });
-			assert.equal(r.status, 400);
-			r = await s.call('/host', undefined, { method: 'POST', rawBody: '{not json', headers: { 'Content-Type': 'application/json' } });
-			assert.equal(r.status, 400);
+			bad(await s.call('/host', undefined, { method: 'POST', rawBody: 'hello', headers: { 'Content-Type': 'text/plain' } }));
+			bad(await s.call('/host', undefined, { method: 'POST', rawBody: '{not json', headers: { 'Content-Type': 'application/json' } }));
+		});
+
+		test('paths with empty or dot segments are refused', async function() {
+			bad(await s.call('//host'));
+			bad(await s.call('/a//b'));
+		});
+
+		test('errors of the HTTP layer are JSON', async function() {
+			let r = await s.call('/', undefined, { method: 'PATCH' });
+			assert.match(r.headers.get('content-type'), /^application\/json/);
+			assert.deepEqual(Object.keys(r.body).sort(), [ 'code', 'message', 'status' ]);
 		});
 
 	});

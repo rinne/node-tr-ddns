@@ -38,6 +38,7 @@ class ApiServer extends EventEmitter {
 									address: address,
 									callback: async function(r) { return this.#requestCb(r); }.bind(this),
 									authCallback: async function(r) { return this.#authCb(r); }.bind(this),
+									errorCallback: function(e) { return this.#errorCb(e); }.bind(this),
 									prettyPrintJsonResponses: this.#debug,
 									bodyReadTimeoutMs: 5000,
 									debug: this.#debug });
@@ -59,6 +60,23 @@ class ApiServer extends EventEmitter {
 				server.closeAllConnections();
 			}
 		});
+	}
+
+	// Errors that the HTTP layer generates itself (unsupported method,
+	// unreadable body, timeout) are sent in the same envelope as the
+	// errors of the API calls.
+	#errorCb(e) {
+		let res = e?.res;
+		if ((! res) || res.headersSent || res.writableEnded) {
+			return false;
+		}
+		let code = (Number.isSafeInteger(e.code) && (e.code >= 400) && (e.code <= 599)) ? e.code : 500;
+		let body = { status: 'error', code: code, message: (typeof(e.message) === 'string') ? e.message : 'Error' };
+		res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8',
+							  'X-Content-Type-Options': 'nosniff',
+							  'Cache-Control': 'no-store' });
+		res.end(this.#debug ? (JSON.stringify(body, null, 2) + "\n") : JSON.stringify(body));
+		return true;
 	}
 
 	async #authCb(r) {

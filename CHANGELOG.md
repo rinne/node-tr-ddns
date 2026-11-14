@@ -2,7 +2,7 @@
 
 Every version published to npm, newest first.
 
-## 2.0.0 (unreleased)
+## 2.0.0 (2026-11-14)
 
 Everything since 1.1.1. The command line, the API calls, the
 configuration file and the library interface of 1.1.1 keep working;

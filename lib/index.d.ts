@@ -324,6 +324,8 @@ export class ApiCore {
 	countCall(): void;
 	/** Counts a request refused for missing or wrong credentials. */
 	countAuthFailure(): void;
+	/** Counts a request refused as sent by a browser for another site. */
+	countForeign(): void;
 }
 
 export interface ApiServerOptions {
@@ -331,14 +333,22 @@ export interface ApiServerOptions {
 	nameDB?: NameDB;
 	/** An API core to share with other transports. */
 	api?: ApiCore;
-	/** Adds the counters of the name server to /stats. */
-	nameServer?: NameServer;
+	/** Adds the counters of the name server to /stats as dns. Not used with api. */
+	nameServer?: { stats(): unknown };
+	/** Adds the counters of the DoH server to /stats as doh. Not used with api. */
+	dohServer?: { stats(): unknown };
 	/** The default is 80. */
 	port?: number;
 	/** The default is 0.0.0.0. */
 	address?: string;
 	/** Base64 of user:password. Without it the API is open. */
 	basicAuth?: string | null;
+	/**
+	 * Host names, as an array or comma separated, that requests may be
+	 * addressed to besides IP addresses and localhost. Requests to other
+	 * names, and requests a browser sends for another site, get 403.
+	 */
+	allowedHosts?: string[] | string;
 	/** Largest request body in bytes. The default is 65536. */
 	maxBodySize?: number;
 	debug?: boolean;
@@ -364,6 +374,10 @@ export interface ControlServerOptions {
 	api?: ApiCore;
 	/** Required unless api is given. */
 	nameDB?: NameDB;
+	/** Adds the counters of the name server to /stats as dns. Not used with api. */
+	nameServer?: { stats(): unknown };
+	/** Adds the counters of the DoH server to /stats as doh. Not used with api. */
+	dohServer?: { stats(): unknown };
 	/** Largest request body in bytes. The default is 65536. */
 	maxBodySize?: number;
 	debug?: boolean;

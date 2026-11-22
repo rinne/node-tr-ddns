@@ -4,6 +4,37 @@ What changes for someone who already runs `tr-ddns` when moving to a new
 major version. [CHANGELOG.md](../CHANGELOG.md) has the complete list
 with the additions.
 
+## From 3.0 to 4.0
+
+The command line, the API, the configuration file and the library are
+those of 3.0 with one addition. Two things are refused that 3.0
+accepted:
+
+- **A host name in front of the HTTP API.** Requests to the API must
+  be addressed to an IP address or `localhost`, or to a name given with
+  `--http-api-allowed-hosts`. A reverse proxy that passes the name of
+  its site on in `Host` needs that name there; otherwise every request
+  gets 403. Requests that a web browser sends for another site also get
+  403. Scripts, curl and `tr-ddns-ctl` are not affected.
+- **IPv4 addresses in other forms than four decimal numbers.** `10.1`,
+  `010.0.0.1`, `0x0a.0.0.1` and the like are refused with 400, and so is
+  an AAAA value with a zone ID. A configuration file written by 3.0 has
+  only addresses in the accepted form. One written by an older version
+  may have others: a host with such an address is ignored with a
+  warning when the file is read, and is then gone from the file when it
+  is next written. Look for the warnings after the first start, or
+  check the file before upgrading.
+
+What else can be noticed:
+
+- An alias to a name at or below a delegation is answered with the
+  CNAME only.
+- Large answers over UDP are truncated at 1232 bytes, so clients that
+  announced more retry over TCP.
+- `/record` with `remove` or `clear` on a missing host no longer
+  creates it.
+- `/stats` has `foreignRefused`.
+
 ## From 2.x to 3.0
 
 Nothing that works with 2.0.0 stops working, and nothing needs to be

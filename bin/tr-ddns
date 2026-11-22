@@ -30,6 +30,14 @@ function commandLineOptsParse() {
 		}
 		return list.join(',');
 	}
+	// Host names separated by commas.
+	function allowedHostsCb(s) {
+		let list = s.split(',').map((x) => x.trim().toLowerCase()).filter((x) => (x !== ''));
+		if ((list.length < 1) || list.some((x) => (! /^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$/.test(x)))) {
+			return undefined;
+		}
+		return list.join(',');
+	}
 	const ou = require('optist/util');
 	return ((new (require('optist')))
 			.opts([].concat(
@@ -161,6 +169,11 @@ function commandLineOptsParse() {
 					optArgCb: ou.integerWithLimitsCbFactory(1, 65535),
 					environment: 'TR_DDNS_OPT_HTTP_API_LISTEN_PORT',
 					defaultValue: '80' },
+				  { longName: 'http-api-allowed-hosts',
+					description: 'Host names of the HTTP API server besides IP addresses',
+					hasArg: true,
+					optArgCb: allowedHostsCb,
+					environment: 'TR_DDNS_OPT_HTTP_API_ALLOWED_HOSTS' },
 				  { longName: 'control-socket',
 					description: 'Serve the API also on this Unix domain socket',
 					hasArg: true,
@@ -332,7 +345,8 @@ async function startStore(store, opt) {
 								 port: opt.value('http-api-listen-port'),
 								 address: opt.value('http-api-listen-address'),
 								 debug: debug,
-								 basicAuth: basicAuth }) :
+								 basicAuth: basicAuth,
+								 allowedHosts: opt.value('http-api-allowed-hosts') }) :
 				 undefined);
 
 	if (api) {

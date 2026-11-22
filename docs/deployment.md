@@ -91,6 +91,11 @@ machine that is reachable from the Internet.
   front, with the API itself on `127.0.0.1`. The API speaks plain HTTP,
   and Basic authentication over plain HTTP gives the password to anyone
   on the path.
+  A proxy that passes the name of the site on in `Host` (nginx with
+  `proxy_set_header Host $host`) needs that name in
+  `--http-api-allowed-hosts`, for example
+  `--http-api-allowed-hosts=ddns.example.com`; otherwise the API
+  answers 403. See [cli.md](cli.md#http-api).
 - Keep the password out of the command line, where every local user can
   see it. Use `--http-api-password-file` with a file only the service
   user can read, or `TR_DDNS_OPT_HTTP_API_PASSWORD` in the environment

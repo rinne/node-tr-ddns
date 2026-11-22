@@ -73,7 +73,7 @@ function buildQuery(name, type, opts) {
 		p.questions.push({ name: q.name, type: q.type, 'class': Packet.CLASS.IN });
 	}
 	if (opts?.edns) {
-		p.additionals.push(Packet.Resource.EDNS([]));
+		p.additionals.push(opts?.ednsSize ? Packet.Resource.EDNS([], { udpPayloadSize: opts.ednsSize }) : Packet.Resource.EDNS([]));
 	}
 	return p.toBuffer();
 }

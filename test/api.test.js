@@ -356,6 +356,13 @@ describe('HTTP API', function() {
 			assert.deepEqual((await host('new.example.com')).data.a, [ '1.2.3.4' ]);
 		});
 
+		test('remove and clear do not create a host', async function() {
+			ok(await s.call('/record', { host: 'none.example.com', command: 'remove', type: 'a', value: '1.2.3.4' }));
+			ok(await s.call('/record', { host: 'none.example.com', command: 'clear', type: 'txt' }));
+			assert.equal(await host('none.example.com'), undefined);
+			bad(await s.call('/record', { host: 'none.example.com', command: 'remove', type: 'a', value: 'junk' }), 'Bad request (value)');
+		});
+
 		test('rejects bad requests', async function() {
 			bad(await s.call('/record', { command: 'add', type: 'a', value: '1.2.3.4' }), 'Bad request (host)');
 			bad(await s.call('/record', { host: 'h.example.com', command: 'nope', type: 'a', value: '1.2.3.4' }), 'Bad request (command)');
@@ -498,6 +505,13 @@ describe('HTTP API with authentication', function() {
 		bad(await s.call('/flush', undefined, { auth: 'user:secre' }), 'Unauthorized', 401);
 	});
 
+	test('the scheme name is case-insensitive', async function() {
+		let b64 = Buffer.from('user:secret').toString('base64');
+		for (let scheme of [ 'basic', 'BASIC', 'bAsIc' ]) {
+			ok(await s.call('/stats', undefined, { headers: { Authorization: scheme + ' ' + b64 } }), scheme);
+		}
+	});
+
 	test('credentials are checked before the body is looked at', async function() {
 		let r = await s.call('/host', undefined, { method: 'POST', rawBody: '{not json', headers: { 'Content-Type': 'application/json' } });
 		bad(r, 'Unauthorized', 401);
@@ -593,6 +607,75 @@ describe('ApiCore', function() {
 			assert.throws(() => new lib.ApiServer({ api: {}, port: 8080 }), /ApiCore/);
 		} finally {
 			await a.close();
+		}
+	});
+
+});
+
+describe('HTTP API and web browsers', function() {
+
+	let s;
+
+	before(async function() {
+		s = await startStack({ api: { allowedHosts: 'ddns.example.net, Other.Example.NET' } });
+		ok(await s.call('/domain', { domain: 'example.com' }));
+	});
+
+	after(async function() {
+		await s.close();
+	});
+
+	// node:http, because fetch does not let the Host header be set.
+	function raw(path, headers) {
+		return new Promise(function(resolve, reject) {
+			let req = require('node:http').request({ host: '127.0.0.1', port: s.apiPort, path: path, headers: headers }, function(res) {
+				res.resume();
+				res.on('end', () => resolve(res.statusCode));
+			});
+			req.on('error', reject);
+			req.end();
+		});
+	}
+
+	test('programs that send no browser headers are served', async function() {
+		let here = '127.0.0.1:' + s.apiPort;
+		for (let host of [ here, 'localhost:' + s.apiPort, 'ddns.example.net', 'other.example.net:8080', '[::1]:8080' ]) {
+			assert.equal(await raw('/stats', { Host: host }), 200, host);
+		}
+		assert.equal(await raw('/stats', { Origin: 'http://' + here, 'Sec-Fetch-Site': 'same-origin' }), 200);
+		assert.equal(await raw('/stats', { 'Sec-Fetch-Site': 'none' }), 200, 'typed into the address bar');
+		assert.equal(await raw('/stats', { Referer: 'http://' + here + '/x' }), 200);
+	});
+
+	test('requests that a browser sends for another site are refused', async function() {
+		let here = '127.0.0.1:' + s.apiPort;
+		let cases = [
+			{ 'Sec-Fetch-Site': 'cross-site' },
+			{ 'Sec-Fetch-Site': 'same-site' },
+			{ Origin: 'http://evil.example.org' },
+			{ Origin: 'http://127.0.0.1:3000' },
+			{ Origin: 'null' },
+			{ Referer: 'http://evil.example.org/page' },
+			{ Referer: 'http://127.0.0.1/page' }
+		];
+		for (let h of cases) {
+			assert.equal(await raw('/host?host=x.example.com&a=192.0.2.1', Object.assign({ Host: here }, h)), 403, JSON.stringify(h));
+		}
+		assert.equal(await raw('/host?host=x.example.com&a=192.0.2.1', { Host: 'rebound.example.org' }), 403, 'DNS rebinding');
+		assert.equal(await raw('/stats', { Host: 'ddns.example.net.evil.org' }), 403);
+		let d = ok(await s.call('/dump'));
+		assert.equal(d.hosts.length, 0, 'nothing was changed');
+		assert.equal(ok(await s.call('/stats')).foreignRefused, cases.length + 2);
+	});
+
+	test('validates the allowed hosts', async function() {
+		let db = new lib.NameDB();
+		try {
+			for (let bad of [ 7, [ 'ok.example', 'not valid' ], 'a,-b' ]) {
+				assert.throws(() => new lib.ApiServer({ nameDB: db, port: 8080, allowedHosts: bad }), /allowed hosts/, String(bad));
+			}
+		} finally {
+			db.close();
 		}
 	});
 

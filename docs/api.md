@@ -219,8 +219,9 @@ curl 'http://127.0.0.1:8080/host?host=alias.example.com&remove=true&ensure=true'
 ## `/record`
 
 Changes the values of one record type of one host and leaves everything
-else, the lifetime of the host included, as it is. The host is created
-if it does not exist.
+else, the lifetime of the host included, as it is. `set` and `add`
+create the host if it does not exist; `remove` and `clear` on a host
+that does not exist change nothing.
 
 | Parameter | Meaning |
 | --- | --- |
@@ -263,6 +264,7 @@ curl 'http://127.0.0.1:8080/stats'
     "hosts": 5,
     "apiCalls": 42,
     "authFailures": 0,
+    "foreignRefused": 0,
     "dns": {
       "queries": 125,
       "answered": 117,
@@ -282,6 +284,7 @@ curl 'http://127.0.0.1:8080/stats'
 | `domains`, `hosts` | What is served right now. |
 | `apiCalls` | API requests received. |
 | `authFailures` | API requests refused with 401. |
+| `foreignRefused` | API requests refused with 403 as sent by a web browser for another site, or to a host name that is not allowed. |
 | `dns.queries` | DNS packets received. |
 | `dns.answered` | Queries answered. |
 | `dns.nxdomain` | Of those, answers saying that the name does not exist. |
@@ -292,7 +295,6 @@ curl 'http://127.0.0.1:8080/stats'
 | `dns.dropped.outOfZone` | Ignored: a name outside the served domains. |
 | `dns.dropped.rateLimited` | Ignored: the source was over its rate limit. |
 | `dns.dropped.error` | Ignored: an internal error while answering. |
-
 | `doh.requests` | HTTP requests received by the DNS over HTTP listener. |
 | `doh.answered` | Of those, answered with a DNS response. |
 | `doh.badRequest` | Refused: no usable query, a wrong method or content type, a body too large. |

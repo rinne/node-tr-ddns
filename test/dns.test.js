@@ -241,6 +241,24 @@ describe('DNS server', function() {
 		assert.equal(r.answers.length, 60);
 	});
 
+	test('over UDP an answer is at most what the server offers, whatever the client announces', async function() {
+		let many = [];
+		for (let i = 0; i < 100; i++) {
+			many.push('10.0.1.' + i);
+		}
+		s.db.set('lots.example.com', { a: many });
+		let r = await s.query('lots.example.com', TYPE.A, { edns: true, ednsSize: 65535 });
+		assert.equal(r.header.tc, 1, 'about 1.7 kB does not fit into the 1232 bytes offered');
+		assert.equal(r.answers.length, 0);
+		assert.equal(r.additionals.filter((a) => (a.type === TYPE.EDNS)).length, 1);
+		let few = many.slice(0, 40);
+		s.db.set('lots.example.com', { a: few });
+		r = await s.query('lots.example.com', TYPE.A, { edns: true, ednsSize: 65535 });
+		assert.deepEqual([ r.header.tc, r.answers.length ], [ 0, 40 ], 'over 512 bytes but within the offer');
+		r = await s.query('lots.example.com', TYPE.A, { edns: true, ednsSize: 600 });
+		assert.equal(r.header.tc, 1, 'the smaller size announced by the client counts');
+	});
+
 	test('garbage does not stop the server', async function() {
 		let lines = await captureConsole(async function() {
 			let sock = dgram.createSocket('udp4');
@@ -527,6 +545,24 @@ describe('DnsCore', function() {
 		assert.deepEqual([ '2001:db8:1:2::1', '2001:db8:1:2:ffff::2', '2001:db8:1:2::3' ].map(ask), [ true, true, false ]);
 		assert.equal(ask('2001:db8:1:3::1'), true, 'the neighbouring /64 is another source');
 		assert.deepEqual([ '192.0.2.9', '::ffff:192.0.2.9', '192.0.2.9' ].map(ask), [ true, true, false ]);
+	});
+
+	test('a flood from many sources does not reset the count of a source', function(t) {
+		t.mock.timers.enable({ apis: [ 'Date' ], now: 2000000 });
+		let limited = new lib.DnsCore({ nameDB: db, rateLimit: 2 });
+		let ask = (source) => (limited.answer(query('h.example.com', TYPE.A), source).response !== undefined);
+		assert.deepEqual([ 1, 2, 3 ].map(() => ask('192.0.2.1')), [ true, true, false ]);
+		// Fill the table: 192.0.2.1 and 65535 others.
+		for (let i = 0; i < 65535; i++) {
+			ask('10.' + (i >> 16) + '.' + ((i >> 8) & 255) + '.' + (i & 255));
+		}
+		assert.equal(ask('192.0.2.1'), false, 'still over its limit in this second');
+		assert.deepEqual([ 1, 2, 3 ].map(() => ask('198.51.100.1')), [ true, true, false ],
+						 'the sources that do not fit share one count');
+		assert.equal(ask('198.51.100.2'), false);
+		t.mock.timers.tick(1000);
+		assert.equal(ask('198.51.100.2'), true, 'a new second starts the count again');
+		t.mock.timers.reset();
 	});
 
 	test('a source without an address is not limited, and junk is its own source', function() {

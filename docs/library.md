@@ -208,10 +208,12 @@ created.
 | --- | --- | --- |
 | `nameDB` | The database to manage. Required unless `api` is given. | |
 | `api` | An `ApiCore` to serve, shared with other transports. | one of its own |
-| `nameServer` | A `NameServer` whose counters are added to `/stats`. | |
+| `nameServer` | A `NameServer` whose counters are added to `/stats` as `dns`. Not used with `api`. | |
+| `dohServer` | A `DohServer` whose counters are added to `/stats` as `doh`. Not used with `api`. | |
 | `address` | | `0.0.0.0` |
 | `port` | | 80 |
 | `basicAuth` | The base64 encoding of `user:password`. Requests must then carry it in HTTP Basic authentication. | none: the API is open |
+| `allowedHosts` | Host names, an array or comma separated, by which the API may be reached besides IP addresses and `localhost`. Requests to other names, and requests that a browser sends for another site, get 403; see [cli.md](cli.md#http-api). | none |
 | `maxBodySize` | The largest request body in bytes. | 65536 |
 | `debug` | Log requests. | off |
 
@@ -240,7 +242,7 @@ over something else, or to make calls from the same process.
 | Method | Description |
 | --- | --- |
 | `handle({ method, path, params })` | Performs one call. `path` is the path of [api.md](api.md) without a query string, `params` an object of parameters. Returns `{ status, body }`: the HTTP status and the JSON object of the response. Never throws. |
-| `countCall()`, `countAuthFailure()` | Count a request, and a request refused for missing or wrong credentials, for `/stats`. A transport calls these. |
+| `countCall()`, `countAuthFailure()`, `countForeign()` | Count a request, a request refused for missing or wrong credentials, and one refused as sent by a browser for another site, for `/stats`. A transport calls these. |
 
 ```js
 const { NameDB, ApiCore } = require('tr-ddns');
@@ -267,6 +269,8 @@ listening when it is created.
 | `mode` | The permissions of the socket file, a number or an octal string. | `0600` |
 | `api` | An `ApiCore` to serve, shared with other transports. | one of its own |
 | `nameDB` | The database to manage. Required unless `api` is given. | |
+| `nameServer` | A `NameServer` whose counters are added to `/stats` as `dns`. Not used with `api`. | |
+| `dohServer` | A `DohServer` whose counters are added to `/stats` as `doh`. Not used with `api`. | |
 | `maxBodySize` | The largest request body in bytes. | 65536 |
 | `debug` | Log requests. | off |
 

@@ -92,6 +92,7 @@ Options:
             --http-api-password-file=<arg>   File containing required password for HTTP API server
             --http-api-listen-address=<arg>  Listen address for HTTP control server
             --http-api-listen-port=<arg>     Listen port for HTTP-API server
+            --http-api-allowed-hosts=<arg>   Host names of the HTTP API server besides IP addresses
             --control-socket=<arg>           Serve the API also on this Unix domain socket
             --control-socket-mode=<arg>      Permissions of the control socket in octal
   -h        --help                           Show help and exit

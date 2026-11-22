@@ -254,6 +254,18 @@ describe('NameDB', function() {
 			assert.equal(db.stats().hosts, 0);
 		});
 
+		test('accepts IPv4 addresses in dotted decimal only', function() {
+			for (let a of [ '010.0.0.1', '001.002.003.004', '127.1', '10.1', '0x7f.0.0.1', '2130706433', '1.2.3.4.5', '256.0.0.1' ]) {
+				assert.equal(db.set('h.example.com', { a: a }), false, a);
+			}
+			for (let a of [ 'fe80::1%eth0', '::ffff:010.0.0.1', '::ffff:127.1' ]) {
+				assert.equal(db.set('h.example.com', { aaaa: a }), false, a);
+			}
+			assert.equal(db.stats().hosts, 0);
+			assert.equal(db.set('h.example.com', { a: [ '0.0.0.0', '10.0.0.1', '255.255.255.255' ], aaaa: '::ffff:192.0.2.1' }), true);
+			assert.deepEqual(db.dump().hosts[0].data.aaaa, [ '0:0:0:0:0:ffff:c000:201' ]);
+		});
+
 		test('validates every value of an array or a set', function() {
 			assert.equal(db.set('h.example.com', { a: [ '1.1.1.1', 'bogus' ] }), false);
 			assert.equal(db.set('h.example.com', { aaaa: new Set([ '::1', 7 ]) }), false);
@@ -264,7 +276,7 @@ describe('NameDB', function() {
 		});
 
 		test('stores values in a normal form', function() {
-			db.set('h.example.com', { a: [ '1.2.3.4', '001.002.003.004' ], aaaa: [ '2001:DB8::1', '2001:db8:0:0:0:0:0:1' ], mx: 'MAIL.Example.COM' });
+			db.set('h.example.com', { a: [ '1.2.3.4', '1.2.3.4' ], aaaa: [ '2001:DB8::1', '2001:db8:0:0:0:0:0:1' ], mx: 'MAIL.Example.COM' });
 			assert.deepEqual(db.dump().hosts[0].data, full({ a: [ '1.2.3.4' ], aaaa: [ '2001:db8:0:0:0:0:0:1' ], txt: [], mx: [ 'mail.example.com' ] }));
 		});
 
@@ -718,6 +730,23 @@ describe('NameDB', function() {
 				db.set('deep.sub.example.com', { ns: 'ns.deep.example.net' });
 				db.set('sub.example.com', { ns: 'ns.sub.example.net' });
 				assert.deepEqual(db.lookup('x.deep.sub.example.com', T.A).authorities.map((x) => x.ns), [ 'ns.sub.example.net' ]);
+			});
+
+			test('an alias into a delegation is not followed', function() {
+				db.set('sub.example.com', { ns: 'ns.sub.example.net' });
+				// Records left below the delegation must not be served
+				// as authoritative data through an alias.
+				db.set('www.sub.example.com', { a: '192.0.2.99' });
+				db.set('alias.example.com', { cname: 'www.sub.example.com' });
+				db.set('alias2.example.com', { cname: 'sub.example.com' });
+				for (let [ name, target ] of [ [ 'alias.example.com', 'www.sub.example.com' ], [ 'alias2.example.com', 'sub.example.com' ] ]) {
+					let r = db.lookup(name, T.A);
+					assert.deepEqual([ r.rcode, r.aa ], [ 0, true ], name);
+					assert.deepEqual(r.answers.map((x) => [ x.name, x.type, x.domain ]), [ [ name, T.CNAME, target ] ], name);
+				}
+				db.set('chain.example.com', { cname: 'h.example.com' });
+				assert.deepEqual(db.lookup('chain.example.com', T.A).answers.map((x) => x.type), [ T.CNAME, T.A, T.A ],
+								 'aliases outside delegations are still followed');
 			});
 
 			test('names that are not strings or are too long are outside', function() {

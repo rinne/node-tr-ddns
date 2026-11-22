@@ -35,6 +35,7 @@ Options:
             --http-api-password-file=<arg>   File containing required password for HTTP API server
             --http-api-listen-address=<arg>  Listen address for HTTP control server
             --http-api-listen-port=<arg>     Listen port for HTTP-API server
+            --http-api-allowed-hosts=<arg>   Host names of the HTTP API server besides IP addresses
             --control-socket=<arg>           Serve the API also on this Unix domain socket
             --control-socket-mode=<arg>      Permissions of the control socket in octal
   -h        --help                           Show help and exit
@@ -110,6 +111,17 @@ choose its own address.
 | `--http-api-user=<user>` | Require HTTP Basic authentication with this user name. Needs a password. | |
 | `--http-api-password=<password>` | The password. Visible in the process list; prefer the file or the environment. | |
 | `--http-api-password-file=<file>` | Read the password from the first line of a file. Cannot be combined with `--http-api-password`. | |
+| `--http-api-allowed-hosts=<names>` | Host names, separated by commas, by which the API is reached, for example behind a proxy. A request to any other name is refused with 403; see below. | IP addresses and `localhost` only |
+
+The API refuses with 403 a request that a web browser sends on behalf
+of another site: one whose `Origin` or `Referer` is another host or
+port, or whose `Sec-Fetch-Site` is `cross-site` or `same-site`. It also
+refuses a request whose `Host` is a name other than `localhost` or one
+given with `--http-api-allowed-hosts`; that stops DNS rebinding, where a
+web page gets a name of its own to point at the API. Without this any
+page that the operator opens could change records with a link or an
+image, since the API changes records with GET. Programs such as curl
+are not affected.
 
 ### Control socket
 
@@ -176,6 +188,7 @@ environment.
 | `TR_DDNS_OPT_HTTP_API_PASSWORD_FILE` | `--http-api-password-file` |
 | `TR_DDNS_OPT_HTTP_API_LISTEN_ADDRESS` | `--http-api-listen-address` |
 | `TR_DDNS_OPT_HTTP_API_LISTEN_PORT` | `--http-api-listen-port` |
+| `TR_DDNS_OPT_HTTP_API_ALLOWED_HOSTS` | `--http-api-allowed-hosts` |
 | `TR_DDNS_OPT_CONTROL_SOCKET` | `--control-socket` |
 | `TR_DDNS_OPT_CONTROL_SOCKET_MODE` | `--control-socket-mode` |
 

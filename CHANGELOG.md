@@ -2,6 +2,69 @@
 
 Every version published to npm, newest first.
 
+## 4.0.0 (2026-11-22)
+
+Security and correctness fixes. Two of them refuse input that 3.0.0
+accepted, hence the major number;
+[the upgrade notes](https://github.com/rinne/node-tr-ddns/blob/main/docs/upgrading.md)
+tell what to check.
+
+### Changed behaviour
+
+- The HTTP API refuses with 403 a request that a web browser sends on
+  behalf of another site (`Origin` or `Referer` of another host or
+  port, `Sec-Fetch-Site` `cross-site` or `same-site`), and a request
+  whose `Host` is a name other than `localhost` or one given with the
+  new `--http-api-allowed-hosts` (`allowedHosts` in the library).
+  Before, any web page that the operator opened could change records
+  through the API with a link or an image, also on `127.0.0.1`, and DNS
+  rebinding reached it by name. `/stats` counts these as
+  `foreignRefused`.
+- IPv4 addresses (A records, and IPv4 inside an AAAA value) are
+  accepted only as four decimal numbers without leading zeros. Before,
+  `010.0.0.1` was read as octal and stored as `8.0.0.1`, and short,
+  hexadecimal and integer forms such as `10.1` were accepted. AAAA
+  values no longer accept a zone ID (`fe80::1%eth0`).
+
+### DNS
+
+- An alias (CNAME) whose target is at or below a delegated name is no
+  longer followed: the answer has the CNAME only, and the client asks
+  for the target and gets the referral. Before, records left below the
+  delegation were served as authoritative data through the alias.
+- A UDP answer is at most 1232 bytes, the size the server offers, even
+  when the client announces more; a larger one is truncated, so the
+  client asks again over TCP. Before, an answer could be as large as the
+  client announced, up to 64 KiB, which made the server a good
+  amplifier.
+- When more than 65536 sources are counted in one second, the rest
+  share one count. Before, the whole table was cleared, which also gave
+  a source that was being flooded a new allowance.
+
+### API
+
+- `/record` with `remove` or `clear` on a host that does not exist
+  changes nothing. Before, it created an empty host, which then held
+  the name.
+- The Basic authentication scheme name is matched without regard to
+  case, as HTTP requires.
+
+### Program
+
+- Unix sockets are created with their final permissions. Before, the
+  socket file had the permissions of the umask for a moment.
+
+### Library
+
+- `ApiServer` and `ControlServer` document their `nameServer` and
+  `dohServer` options, in `index.d.ts` too. `ApiCore` has
+  `countForeign()`.
+
+### Requirements
+
+- `tr-apisrv` 3.1.0 (`maxBodySize` 0 now allows only empty bodies; no
+  more reset connections on rejected bodies) and `optist` 3.0.1.
+
 ## 3.0.0 (2026-11-14)
 
 New ways to run the server: beside another product with only DNS

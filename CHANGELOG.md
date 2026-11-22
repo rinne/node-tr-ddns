@@ -2,6 +2,22 @@
 
 Every version published to npm, newest first.
 
+## 4.0.1 (2026-11-22)
+
+### Program
+
+- A listen address must be an IPv4 address in dotted decimal or an
+  IPv6 address (with a zone ID for a link-local one). Before, forms
+  such as `010.0.0.1` (read as octal, 8.0.0.1), `127.1` or `0x7f.1`
+  were accepted and listened on an address other than the one that
+  was meant.
+
+### Requirements
+
+- `tr-apisrv` 3.3.0 (an error callback that claims a request but never
+  answers gets the default response; a request timeout closes the
+  connection) and `optist` 3.0.2.
+
 ## 4.0.0 (2026-11-22)
 
 Security and correctness fixes. Two of them refuse input that 3.0.0

@@ -417,6 +417,8 @@ describe('server started from the command line', function() {
 		}
 		let r = await runCli([ '-c', cf, '--udp', '--udp-listen-address=127.0.0.1,nope' ]);
 		assert.notEqual(r.code, 0);
+		r = await runCli([ '-c', cf, '--udp', '--udp-listen-address=010.0.0.1' ]);
+		assert.notEqual(r.code, 0);
 	});
 
 	test('the settings of a domain survive a restart', async function(t) {

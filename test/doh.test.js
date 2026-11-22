@@ -331,6 +331,7 @@ describe('DohServer', function() {
 			assert.throws(() => new DohServer({}), /NameDB/);
 			assert.throws(() => new DohServer({ core: {} }), /DnsCore/);
 			assert.throws(() => new DohServer({ nameDB: db, address: 'bogus' }), /listen address/);
+			assert.throws(() => new DohServer({ nameDB: db, address: '010.0.0.1' }), /listen address/);
 			assert.throws(() => new DohServer({ nameDB: db, port: 0 }), /listen port/);
 			assert.throws(() => new DohServer({ nameDB: db, socket: '' }), /socket path/);
 			assert.throws(() => new DohServer({ nameDB: db, socket: '/tmp/x', socketMode: 'rw' }), /mode/);

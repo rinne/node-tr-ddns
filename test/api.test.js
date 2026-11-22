@@ -689,6 +689,9 @@ describe('ApiServer', function() {
 			assert.throws(() => new lib.ApiServer({ port: 8080 }), /NameDB/);
 			assert.throws(() => new lib.ApiServer({ nameDB: db, port: 70000 }), /port/);
 			assert.throws(() => new lib.ApiServer({ nameDB: db, port: 8080, address: 'bogus' }), /address/);
+			for (let bad of [ '010.0.0.1', '127.1', '0x7f.0.0.1' ]) {
+				assert.throws(() => new lib.ApiServer({ nameDB: db, port: 8080, address: bad }), /listen address/, bad);
+			}
 		} finally {
 			db.close();
 		}

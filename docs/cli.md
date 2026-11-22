@@ -76,6 +76,11 @@ switched on with value true.
 Enable both `--udp` and `--tcp`: an answer that does not fit in a UDP
 packet is truncated, and the client then asks again over TCP.
 
+A listen address is an IP address: IPv4 in dotted decimal only (not
+`010.0.0.1`, which a resolver reads as octal 8.0.0.1, nor `127.1` or
+other short forms), or IPv6, with a zone ID for a link-local address
+(`fe80::1%eth0`). This holds for all listen address options.
+
 Whether `::` also accepts IPv4 depends on the operating system. Where it
 does, which is the default on Linux, `--udp-listen-address=::` alone
 serves both, and `0.0.0.0,::` together fails because the port is taken

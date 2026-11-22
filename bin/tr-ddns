@@ -14,10 +14,11 @@ const ApiCore = require('../lib/api');
 const ControlServer = require('../lib/controlserver');
 const ConfigStore = require('../lib/store');
 const log = require('../lib/log');
+const listener = require('../lib/listener');
 
 function commandLineOptsParse() {
 	function validIpAddrCb(s) {
-		if (! ipaddr.isValid(s)) {
+		if (! listener.validAddress(s)) {
 			return undefined;
 		}
 		return ipaddr.parse(s).toNormalizedString();

@@ -397,7 +397,8 @@ describe('DNS server on several addresses', function() {
 	test('an invalid list is refused', function() {
 		let db = new lib.NameDB();
 		try {
-			for (let bad of [ '', '127.0.0.1,', '127.0.0.1,nope', [], [ '127.0.0.1', 7 ], 7 ]) {
+			// Octal, short and integer IPv4 forms are refused: 010.0.0.1 would be 8.0.0.1.
+			for (let bad of [ '', '127.0.0.1,', '127.0.0.1,nope', [], [ '127.0.0.1', 7 ], 7, '010.0.0.1', '127.1', '2130706433', '::ffff:127.1' ]) {
 				assert.throws(() => new lib.NameServer({ nameDB: db, udp: true, udpListenAddress: bad }), /UDP listen address/, JSON.stringify(bad));
 				assert.throws(() => new lib.NameServer({ nameDB: db, tcp: true, tcpListenAddress: bad }), /TCP listen address/, JSON.stringify(bad));
 			}

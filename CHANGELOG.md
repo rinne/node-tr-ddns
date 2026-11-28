@@ -2,7 +2,7 @@
 
 Every version published to npm, newest first.
 
-## 4.0.2 (unreleased)
+## 4.0.2 (2026-11-28)
 
 ### Program
 

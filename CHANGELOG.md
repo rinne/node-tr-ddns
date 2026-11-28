@@ -2,6 +2,16 @@
 
 Every version published to npm, newest first.
 
+## 4.0.2 (unreleased)
+
+### Program
+
+- A configuration file that is a mount point of its own, such as a
+  single file bind mounted into a container, can be saved again.
+  Since 2.0.0 the file is replaced with a new one, which fails there
+  with "Unable to update configuration file (EBUSY)"; such a file is
+  now written over in place.
+
 ## 4.0.1 (2026-11-22)
 
 ### Program

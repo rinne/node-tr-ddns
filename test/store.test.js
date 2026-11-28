@@ -168,6 +168,26 @@ describe('ConfigStore', function() {
 		assert.equal(readJson(real).domains.length, 1);
 	});
 
+	test('a file that cannot be replaced (EBUSY) is written in place', async function() {
+		fs.writeFileSync(file, '{"hosts":[],"domains":[],"padding":"' + 'x'.repeat(1000) + '"}');
+		let inode = fs.statSync(file).ino;
+		db.addDomain('example.com');
+		let rename = fs.promises.rename;
+		fs.promises.rename = async function() {
+			let e = new Error('EBUSY: resource busy or locked, rename');
+			e.code = 'EBUSY';
+			throw e;
+		};
+		try {
+			await store.write();
+		} finally {
+			fs.promises.rename = rename;
+		}
+		assert.equal(fs.statSync(file).ino, inode, 'the same file was written');
+		assert.deepEqual(readJson(file), { hosts: [], domains: db.dump().domains });
+		assert.deepEqual(fs.readdirSync(dir), [ 'config.json' ]);
+	});
+
 	test('a failed write leaves the old file intact', { skip: (process.platform === 'win32') || (process.getuid?.() === 0) }, async function() {
 		fs.writeFileSync(file, '{"hosts":[],"domains":[]}');
 		db.addDomain('example.com');
